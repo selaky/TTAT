@@ -15,7 +15,8 @@ excel_file_path = 'parallel_concordance_preloaded_unpc_en_20250511052212.xlsx'
 # 或者，如果你的数据从第二行开始，且没有header，可以设置 header=None
 # 然后再根据需要选取列
 try:
-    df = pd.read_excel(excel_file_path, skiprows=1, header=None, names=['col_A', 'col_B'])
+    df = pd.read_excel(excel_file_path, skiprows=1, header=None, 
+                      names=['index', 'doc_id', 'english', 'type', 'chinese'])
 except FileNotFoundError:
     print(f"错误：找不到文件 {excel_file_path}")
     exit()
@@ -28,8 +29,8 @@ df.reset_index(drop=True, inplace=True)
 sentence_pairs = []
 for i in range(0, len(df), 2):
     if i + 1 < len(df):
-        eng_text_raw = str(df.iloc[i, 2]) # 英文在第二列
-        chi_text_raw = str(df.iloc[i, 4]) # 中文在第四列
+        eng_text_raw = str(df.iloc[i, 1]) # 英文在第二列
+        chi_text_raw = str(df.iloc[i, 3]) # 中文在第四列
 
         # 提取doc_id (可选)
         doc_id_eng_match = re.search(r'doc#(\w+)', eng_text_raw)
@@ -102,32 +103,34 @@ def analyze_sentence_with_ai(english_sentence, chinese_sentence, api_key, api_en
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    # API的payload结构取决于你使用的具体AI服务商
-    # 以下是一个通用示例，你需要根据你的AI服务商文档调整
+    
+    # 修改API调用格式以符合AIHubMix的要求
     payload = {
-        "model": "gemini-2.5-flash-preview-04-17-nothink", # 替换成你用的模型
+        "model": "gemini-2.5-flash-preview-04-17-nothink",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3, # 可以调整以控制输出的随机性
-        "max_tokens": 1000  # 确保足够返回分析结果
+        "temperature": 0.3,
+        "max_tokens": 1000
     }
 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = requests.post(api_endpoint, headers=headers, json=payload, timeout=60) # 设置超时
-            response.raise_for_status() # 如果HTTP错误 (4xx, 5xx) 会抛出异常
+            # 修改API端点，添加/chat/completions
+            response = requests.post(f"{api_endpoint}/chat/completions", 
+                                  headers=headers, 
+                                  json=payload, 
+                                  timeout=60)
+            response.raise_for_status()
             
             response_json = response.json()
             
-            # 提取AI的回复内容，这同样取决于API服务商的返回结构
-            # 通常在 "choices"[0]["message"]["content"] 或类似路径
+            # 修改响应解析逻辑以匹配AIHubMix的返回格式
             ai_response_content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
             
             if not ai_response_content:
                 print("警告：AI返回了空内容。")
-                return [] # 返回空列表表示没有结果或出错
+                return []
 
-            # 尝试解析AI返回的JSON字符串
             try:
                 # AI可能在JSON外包裹了其他文本，尝试提取JSON部分
                 # 例如，如果AI说 "Here is the JSON list: \n[...]\n"
@@ -137,7 +140,7 @@ def analyze_sentence_with_ai(english_sentence, chinese_sentence, api_key, api_en
                     return parsed_json
                 else:
                     print(f"警告：无法从AI回复中提取有效的JSON列表。\nAI回复：\n{ai_response_content}")
-                    return [] # 或者你可以设计一个错误对象
+                    return []
             except json.JSONDecodeError as e:
                 print(f"错误：解析AI返回的JSON失败。错误信息：{e}\nAI回复：\n{ai_response_content}")
                 return [] # 返回空列表表示解析失败

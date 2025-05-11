@@ -5,12 +5,25 @@ import json
 import time
 import os
 from dotenv import load_dotenv # 如果使用.env文件
+import tkinter as tk
+from tkinter import filedialog
 
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
 API_ENDPOINT = os.getenv("API_ENDPOINT")
 
-excel_file_path = 'parallel_concordance_preloaded_unpc_en_20250511052212.xlsx'
+# 创建文件选择对话框
+root = tk.Tk()
+root.withdraw()  # 隐藏主窗口
+excel_file_path = filedialog.askopenfilename(
+    title="选择Excel文件",
+    filetypes=[("Excel files", "*.xlsx *.xls")]
+)
+
+if not excel_file_path:
+    print("未选择文件，程序退出。")
+    exit()
+
 # 跳过第一行元数据，并指定列名，如果Excel没有明确的列头给pandas用
 # 或者，如果你的数据从第二行开始，且没有header，可以设置 header=None
 # 然后再根据需要选取列
@@ -31,10 +44,7 @@ for i in range(0, len(df), 2):
     if i + 1 < len(df):
         eng_text_raw = str(df.iloc[i, 1]) # 英文在第二列
         chi_text_raw = str(df.iloc[i, 3]) # 中文在第四列
-
-        # 提取doc_id (可选)
-        doc_id_eng_match = re.search(r'doc#(\w+)', eng_text_raw)
-        doc_id_eng = doc_id_eng_match.group(1) if doc_id_eng_match else f"row_{i}"
+        doc_id = str(df.iloc[i, 1]) # 使用Excel中的doc_id列
 
         # 清理句子，去除<s>, </s>标签和doc#信息
         eng_sentence = re.sub(r'<s>|</s>|doc#\w+\s*', '', eng_text_raw).strip()
@@ -45,7 +55,7 @@ for i in range(0, len(df), 2):
 
         if eng_sentence and chi_sentence: # 确保句子不为空
             sentence_pairs.append({
-                'doc_id': doc_id_eng,
+                'doc_id': doc_id,
                 'english_sentence': eng_sentence,
                 'chinese_sentence': chi_sentence
             })
@@ -196,9 +206,8 @@ for index, pair in enumerate(sentence_pairs):
             'translation_technique': 'N/A'
         })
     
-    # 建议：先测试少量数据 (例如前5-10对)，确保一切正常再跑全部
-    # if index >= 9: # 测试前10条
-    #     break
+    if index >= 9: # 测试前10条
+        break
 
 print(f"所有句对处理完毕。共收集到 {len(all_results)} 条结果记录。")
 

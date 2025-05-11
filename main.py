@@ -24,11 +24,9 @@ if not excel_file_path:
     print("未选择文件，程序退出。")
     exit()
 
-# 跳过第一行元数据，并指定列名，如果Excel没有明确的列头给pandas用
-# 或者，如果你的数据从第二行开始，且没有header，可以设置 header=None
-# 然后再根据需要选取列
+# 跳过前6行元数据，并指定列名
 try:
-    df = pd.read_excel(excel_file_path, skiprows=1, header=None, 
+    df = pd.read_excel(excel_file_path, skiprows=6, header=None, 
                       names=['index', 'doc_id', 'english', 'type', 'chinese'])
 except FileNotFoundError:
     print(f"错误：找不到文件 {excel_file_path}")
@@ -44,7 +42,7 @@ for i in range(0, len(df), 2):
     if i + 1 < len(df):
         eng_text_raw = str(df.iloc[i, 1]) # 英文在第二列
         chi_text_raw = str(df.iloc[i, 3]) # 中文在第四列
-        doc_id = str(df.iloc[i, 1]) # 使用Excel中的doc_id列
+        doc_id = str(df.iloc[i, 0])  # 使用第一列的编号作为doc_id
 
         # 清理句子，去除<s>, </s>标签和doc#信息
         eng_sentence = re.sub(r'<s>|</s>|doc#\w+\s*', '', eng_text_raw).strip()
@@ -62,48 +60,59 @@ for i in range(0, len(df), 2):
 print(f"成功提取 {len(sentence_pairs)} 个句对。")
 
 def construct_prompt(english_sentence, chinese_sentence):
-    # 需要根据名词化结构定义来完善这部分
-    # 例如，研究的是 "V-ing of" 结构，或者 "-tion", "-ment" 派生词等
-    nominalization_definition_example = """
-    名词化结构定义：
-    1. 派生型名词化：由动词或形容词通过添加后缀（如-tion, -ment, -ness, -ity, -ing等）转换而来的名词，表达动作、过程、状态或性质。例如：development, management, happiness, ability, building (作为名词)。
-    2. 转换型名词化（零派生）：动词或形容词直接用作名词，形式不变但词性改变。例如：a run, a hope, the good, a find.
-    3. 短语型名词化：通常指动名词短语（如 "the V-ing of N" 结构）或不定式短语在句中充当名词成分。例如： "the killing of members", "to achieve success".
-
-    请重点关注英文句子中符合上述定义的、充当核心名词成分的名词化结构。
+    # 名词化结构定义
+    nominalization_structure_definitions = """
+    Translation techniques:
+    1. Maintain_Noun: The nominalization is translated as a noun in Chinese. Suitable for simple structures or technical terms.
+    2. Shift_Word_Class: The nominalization is translated as a verb, adjective, etc. Used to make the translation more natural in Chinese.
+    3. Omit_Structure: The nominalization is omitted in translation as its meaning is implied in context.
+    4. Reconstruct_Sentence: The overall sentence structure is changed, adjusting word order, voice, etc.
+    5. Difficult_To_Determine: The nominalization has no clear correspondence in translation or is difficult to categorize.
+    """
+    
+    # 翻译技巧定义
+    translation_technique_definitions = """
+    Translation techniques:
+1. Maintain_Noun: The nominalization is translated as a noun in Chinese. Suitable for simple structures or technical terms.
+2. Shift_Word_Class: The nominalization is translated as a verb, adjective, etc. Used to make the translation more natural in Chinese.
+3. Omit_Structure: The nominalization is omitted in translation as its meaning is implied in context.
+4. Reconstruct_Sentence: The overall sentence structure is changed, adjusting word order, voice, etc.
+5. Difficult_To_Determine: The nominalization has no clear correspondence in translation or is difficult to categorize.
     """
 
     prompt = f"""
-    请分析以下英文句子及其对应的中文译文。
+    Please analyze the following English sentence from United Nations documents and its Chinese translation.
 
-    英文原句：
-    {english_sentence}
+English original:
+{english_sentence}
 
-    中文译文：
-    {chinese_sentence}
+Chinese translation:
+{chinese_sentence}
 
-    任务：
-    1.  请识别英文原句中的所有核心名词化结构。{nominalization_definition_example}
-    2.  对于每一个识别出的名词化结构，请提供以下信息：
-        a.  识别出的英文名词化结构本身 (Identified_Nominalization_EN)。
-        b.  该名词化结构的类型 (Nominalization_Type)，从以下选项中选择：派生型 (Derivational), 转换型 (Conversional), 短语型 (Phrasal)。
-        c.  该名词化结构在中文译文中的翻译技巧 (Translation_Technique)，从以下选项中选择：保持名词结构 (Maintain_Noun), 词类转换 (Shift_Word_Class), 省略不必要结构 (Omit_Structure), 句子重构 (Reconstruct_Sentence)。如果一个名词化结构在译文中没有直接对应或者难以判断，请标记为“难以判断 (Difficult_To_Determine)”。
+Tasks:
+1. Identify all core nominalization structures in the English sentence.The defininition of nominalization structure is as follows:
+   {nominalization_structure_definitions}
+2. For each identified nominalization structure, provide:
+   a. The identified English nominalization structure (Identified_Nominalization_EN)
+   b. Type of nominalization (Nominalization_Type): Derivational, Conversional, or Phrasal
+   c. Translation technique used (Translation_Technique). The defininition of translation technique is as follows:
+      {translation_technique_definitions}
 
-    请以JSON列表的格式返回结果，每个元素是一个字典，代表一个识别出的名词化结构及其分析。
-    例如：
-    [
-      {{
-        "Identified_Nominalization_EN": "the killing of members",
-        "Nominalization_Type": "Phrasal",
-        "Translation_Technique": "Maintain_Noun"
-      }},
-      {{
-        "Identified_Nominalization_EN": "development",
-        "Nominalization_Type": "Derivational",
-        "Translation_Technique": "Shift_Word_Class"
-      }}
-    ]
-    如果英文句子中没有找到符合要求的名词化结构，请返回一个空列表：[]
+Please return your analysis as a JSON list, where each element is a dictionary representing an identified nominalization structure:
+[
+  {{
+    "Identified_Nominalization_EN": "the killing of members",
+    "Nominalization_Type": "Phrasal",
+    "Translation_Technique": "Maintain_Noun"
+  }},
+  {{
+    "Identified_Nominalization_EN": "development",
+    "Nominalization_Type": "Derivational",
+    "Translation_Technique": "Shift_Word_Class"
+  }}
+]
+If no nominalization structures are found, please return an empty list: []
+
     """
     return prompt
 
@@ -206,8 +215,8 @@ for index, pair in enumerate(sentence_pairs):
             'translation_technique': 'N/A'
         })
     
-    if index >= 9: # 测试前10条
-        break
+    # if index >= 9: # 测试前10条
+    #     break
 
 print(f"所有句对处理完毕。共收集到 {len(all_results)} 条结果记录。")
 

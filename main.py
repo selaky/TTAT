@@ -5,15 +5,30 @@ import json
 import time
 import os
 import signal
-from dotenv import load_dotenv # 如果使用.env文件
 import tkinter as tk
 from tkinter import filedialog
 from typing import List, Dict
 from config_manager import ConfigManager
 
-load_dotenv()
-API_KEY = os.getenv("API_KEY")
-API_ENDPOINT = os.getenv("API_ENDPOINT")
+# 初始化配置管理器
+print("正在初始化配置...")
+config_manager = ConfigManager()
+config = config_manager.get_config()
+
+# 如果配置无效，退出程序
+if not config:
+    print("程序因配置错误而退出")
+    print("请检查配置文件是否正确，然后重新运行程序")
+    exit()
+
+print("配置加载成功，正在启动程序...")
+
+# 从配置中获取API相关设置
+API_KEY = config["api_key"]
+API_ENDPOINT = config["api_endpoint"]
+TEMPERATURE = config.get("temperature", 0.3)
+MAX_TOKENS = config.get("max_tokens", 1000)
+MODEL = config.get("model", "gemini-2.5-flash-preview-04-17-nothink")
 
 # 添加全局停止标志
 stop_processing = False
@@ -162,12 +177,12 @@ def analyze_sentence_with_ai(english_sentence, chinese_sentence, api_key, api_en
         "Content-Type": "application/json"
     }
     
-    # 修改API调用格式以符合AIHubMix的要求
+    # 使用配置中的参数
     payload = {
-        "model": "gemini-2.5-flash-preview-04-17-nothink",
+        "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 1000
+        "temperature": TEMPERATURE,
+        "max_tokens": MAX_TOKENS
     }
 
     max_retries = 3

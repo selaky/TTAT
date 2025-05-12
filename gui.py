@@ -28,12 +28,16 @@ class ConfigDialog(ctk.CTkToplevel):
         
         # 设置窗口
         self.title("配置设置")
-        self.geometry("500x400")
+        self.geometry("425x500")
         self.resizable(False, False)
         
         # 初始化配置管理器
         self.config_manager = ConfigManager()
-        self.config = self.config_manager.get_config() or {}
+        config, error = self.config_manager.load_config()
+        self.config = config or {}
+        
+        if error:
+            print(f"加载配置时发生错误：{error}")
         
         # 创建变量存储配置值
         self.api_endpoint_var = tk.StringVar(value=self.config.get("api_endpoint", ""))
@@ -41,113 +45,149 @@ class ConfigDialog(ctk.CTkToplevel):
         self.temperature_var = tk.StringVar(value=str(self.config.get("temperature", 0.3)))
         self.max_tokens_var = tk.StringVar(value=str(self.config.get("max_tokens", 1000)))
         self.model_var = tk.StringVar(value=self.config.get("model", "gemini-2.5-flash-preview-04-17-nothink"))
+        self.min_length_var = tk.StringVar(value=str(self.config.get("min_sentence_length", 10)))
+        self.max_length_var = tk.StringVar(value=str(self.config.get("max_sentence_length", 500)))
+        
+        # 标记是否取消配置
+        self.cancelled = False
         
         self.setup_ui()
         
         # 使窗口模态
         self.grab_set()
         
+        # 设置关闭窗口的处理
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    def on_closing(self):
+        """处理窗口关闭事件"""
+        if not self.config_manager.config:  # 如果是首次配置
+            self.cancelled = True
+        self.destroy()
+        
     def setup_ui(self):
-        """设置UI布局"""
-        # 主框架
-        main_frame = ctk.CTkFrame(self)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
+        """设置UI布局，增加滚动条，按钮固定底部"""
+        # 主容器，分为内容区和底部按钮区
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # ========== 滚动内容区 ========== #
+        content_frame = ctk.CTkFrame(self)
+        content_frame.grid(row=0, column=0, sticky="nsew")
+        content_frame.grid_rowconfigure(0, weight=1)
+        content_frame.grid_columnconfigure(0, weight=1)
+
+        # 用Canvas+Frame实现滚动
+        canvas = tk.Canvas(content_frame, borderwidth=0, highlightthickness=0, bg="#222")
+        scrollable_frame = ctk.CTkFrame(canvas)
+        vscrollbar = ctk.CTkScrollbar(content_frame, orientation="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vscrollbar.set)
+
+        vscrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        # 自动调整滚动区域
+        def on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        scrollable_frame.bind("<Configure>", on_frame_configure)
+
+        # ========== 以下内容全部放到scrollable_frame里 ========== #
         # API设置区域
-        api_frame = ctk.CTkFrame(main_frame)
+        api_frame = ctk.CTkFrame(scrollable_frame)
         api_frame.pack(fill="x", padx=10, pady=5)
-        
         ctk.CTkLabel(api_frame, text="API设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
-        
-        # API端点
         endpoint_frame = ctk.CTkFrame(api_frame)
         endpoint_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(endpoint_frame, text="API端点：").pack(side="left", padx=5)
         ctk.CTkEntry(endpoint_frame, textvariable=self.api_endpoint_var, width=300).pack(side="left", padx=5)
-        
-        # API密钥
         key_frame = ctk.CTkFrame(api_frame)
         key_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(key_frame, text="API密钥：").pack(side="left", padx=5)
         key_entry = ctk.CTkEntry(key_frame, textvariable=self.api_key_var, width=300, show="*")
         key_entry.pack(side="left", padx=5)
-        
+
         # 高级设置区域
-        advanced_frame = ctk.CTkFrame(main_frame)
+        advanced_frame = ctk.CTkFrame(scrollable_frame)
         advanced_frame.pack(fill="x", padx=10, pady=10)
-        
         ctk.CTkLabel(advanced_frame, text="高级设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
-        
-        # Temperature
         temp_frame = ctk.CTkFrame(advanced_frame)
         temp_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(temp_frame, text="Temperature：").pack(side="left", padx=5)
         temp_entry = ctk.CTkEntry(temp_frame, textvariable=self.temperature_var, width=100)
         temp_entry.pack(side="left", padx=5)
         ctk.CTkLabel(temp_frame, text="(0-1之间的值)").pack(side="left", padx=5)
-        
-        # Max Tokens
         tokens_frame = ctk.CTkFrame(advanced_frame)
         tokens_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(tokens_frame, text="Max Tokens：").pack(side="left", padx=5)
         tokens_entry = ctk.CTkEntry(tokens_frame, textvariable=self.max_tokens_var, width=100)
         tokens_entry.pack(side="left", padx=5)
-        
-        # Model
         model_frame = ctk.CTkFrame(advanced_frame)
         model_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(model_frame, text="模型：").pack(side="left", padx=5)
         model_entry = ctk.CTkEntry(model_frame, textvariable=self.model_var, width=300)
         model_entry.pack(side="left", padx=5)
-        
-        # 按钮区域
-        button_frame = ctk.CTkFrame(main_frame)
-        button_frame.pack(fill="x", padx=10, pady=10)
+
+        # 句子长度限制区域
+        length_frame = ctk.CTkFrame(scrollable_frame)
+        length_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(length_frame, text="句子长度限制", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        min_len_frame = ctk.CTkFrame(length_frame)
+        min_len_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(min_len_frame, text="最小长度：").pack(side="left", padx=5)
+        min_len_entry = ctk.CTkEntry(min_len_frame, textvariable=self.min_length_var, width=100)
+        min_len_entry.pack(side="left", padx=5)
+        ctk.CTkLabel(min_len_frame, text="(推荐: 10-20)").pack(side="left", padx=5)
+        max_len_frame = ctk.CTkFrame(length_frame)
+        max_len_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(max_len_frame, text="最大长度：").pack(side="left", padx=5)
+        max_len_entry = ctk.CTkEntry(max_len_frame, textvariable=self.max_length_var, width=100)
+        max_len_entry.pack(side="left", padx=5)
+        ctk.CTkLabel(max_len_frame, text="(推荐: 300-500)").pack(side="left", padx=5)
+        risk_frame = ctk.CTkFrame(length_frame)
+        risk_frame.pack(fill="x", padx=5, pady=5)
+        risk_text = "提示：\n" + \
+                   "- 长度设置过低可能导致语言识别不理想。"
+        ctk.CTkLabel(risk_frame, text=risk_text, justify="left").pack(anchor="w", padx=5, pady=5)
+
+        # ========== 底部按钮区，固定在窗口底部 ========== #
+        button_frame = ctk.CTkFrame(self)
+        button_frame.grid(row=1, column=0, sticky="ew")
+        button_frame.grid_columnconfigure(0, weight=1)
         
         ctk.CTkButton(
             button_frame,
             text="保存",
             command=self.save_config,
             width=100
-        ).pack(side="right", padx=5)
+        ).pack(side="right", padx=5, pady=10)
         
         ctk.CTkButton(
             button_frame,
             text="取消",
             command=self.destroy,
             width=100
-        ).pack(side="right", padx=5)
-        
+        ).pack(side="right", padx=5, pady=10)
+
     def save_config(self):
         """保存配置"""
         try:
-            # 验证temperature值
-            temp = float(self.temperature_var.get())
-            if not 0 <= temp <= 1:
-                raise ValueError("Temperature必须在0到1之间")
-                
-            # 验证max_tokens值
-            tokens = int(self.max_tokens_var.get())
-            if tokens <= 0:
-                raise ValueError("Max Tokens必须大于0")
-                
-            # 更新配置
+            # 构建新配置
             new_config = {
                 "api_endpoint": self.api_endpoint_var.get().strip(),
                 "api_key": self.api_key_var.get().strip(),
-                "temperature": temp,
-                "max_tokens": tokens,
-                "model": self.model_var.get().strip()
+                "temperature": float(self.temperature_var.get()),
+                "max_tokens": int(self.max_tokens_var.get()),
+                "model": self.model_var.get().strip(),
+                "min_sentence_length": int(self.min_length_var.get()),
+                "max_sentence_length": int(self.max_length_var.get())
             }
             
-            # 验证必要字段
-            if not new_config["api_endpoint"] or not new_config["api_key"]:
-                raise ValueError("API端点和API密钥不能为空")
+            # 更新配置管理器中的配置
+            self.config_manager.config = new_config
             
             # 保存配置
-            self.config_manager.config = new_config
             self.config_manager._save_config()
-            
             print("配置已保存")
             self.destroy()
             
@@ -285,15 +325,15 @@ class MainGUI:
 
     def start_processing(self):
         """开始处理"""
-        if not self.input_file_path or not self.output_file_path:
-            print("请先选择输入和输出文件！")
-            return
-
         # 获取配置
         config_manager = ConfigManager()
-        config = config_manager.get_config()
+        config, error = config_manager.load_config()
         if not config:
-            print("错误：无法加载配置，请先完成设置。")
+            print(f"错误：无法加载配置，请先完成设置。{error if error else ''}")
+            return
+
+        if not self.input_file_path or not self.output_file_path:
+            print("请先选择输入和输出文件！")
             return
 
         # 创建处理器
@@ -361,4 +401,5 @@ class MainGUI:
 
 if __name__ == "__main__":
     app = MainGUI()
-    app.run() 
+    if app.root.winfo_exists():  # 检查窗口是否还存在
+        app.run() 

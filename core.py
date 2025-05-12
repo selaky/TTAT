@@ -6,6 +6,7 @@ import time
 from typing import List, Dict, Optional, Callable
 from config_manager import ConfigManager
 import csv
+from langdetect import detect, LangDetectException
 
 class CoreProcessor:
     def __init__(self, config: Dict):
@@ -23,6 +24,10 @@ class CoreProcessor:
         
         # 设置批处理大小
         self.BATCH_SIZE = 100
+        
+        # 设置句子长度限制
+        self.MIN_SENTENCE_LENGTH = config.get("min_sentence_length", 10)
+        self.MAX_SENTENCE_LENGTH = config.get("max_sentence_length", 500)
 
     def set_progress_callback(self, callback: Callable[[str], None]):
         """设置进度回调函数"""
@@ -34,6 +39,33 @@ class CoreProcessor:
             self.progress_callback(message)
         else:
             print(message)
+
+    def is_valid_language(self, text: str, expected_lang: str) -> bool:
+        """
+        检查文本是否符合预期的语言
+        
+        Args:
+            text: 要检查的文本
+            expected_lang: 期望的语言代码 ('en' 或 'zh-cn')
+            
+        Returns:
+            bool: 是否符合预期语言
+        """
+        try:
+            # 如果文本太短，可能无法准确检测
+            if len(text.strip()) < 10:
+                return False
+                
+            detected_lang = detect(text)
+            
+            # 处理中文的特殊情况
+            if expected_lang == 'zh-cn':
+                return detected_lang in ['zh-cn', 'zh-tw', 'zh']
+            else:
+                return detected_lang == expected_lang
+                
+        except LangDetectException:
+            return False
 
     def construct_prompt(self, english_sentence: str, chinese_sentence: str) -> str:
         """构造提示词"""
@@ -161,6 +193,8 @@ If no nominalization structures are found, please return an empty list: []
             
             # 提取句对
             sentence_pairs = []
+            invalid_pairs = []  # 记录无效的句对
+            
             for i in range(0, len(df)):
                 if i + 1 < len(df):
                     eng_text_raw = str(df.iloc[i, 1])
@@ -173,7 +207,55 @@ If no nominalization structures are found, please return an empty list: []
                     chi_sentence = re.sub(r'^\d+\s*\.\s*', '', chi_sentence).strip()
                     chi_sentence = re.sub(r'\s+', '', chi_sentence)
                     
+                    # 检查是否完整句子（以标点符号结尾）
                     if not re.search(r'[.!?;,]$', eng_sentence):
+                        invalid_pairs.append({
+                            'doc_id': doc_id,
+                            'reason': '英文句子不以标点符号结尾',
+                            'english': eng_sentence,
+                            'chinese': chi_sentence
+                        })
+                        continue
+
+                    # 检查句子长度
+                    eng_len = len(eng_sentence)
+                    chi_len = len(chi_sentence)
+                    
+                    if eng_len < self.MIN_SENTENCE_LENGTH or chi_len < self.MIN_SENTENCE_LENGTH:
+                        invalid_pairs.append({
+                            'doc_id': doc_id,
+                            'reason': f'句子长度小于最小限制（英文：{eng_len}，中文：{chi_len}）',
+                            'english': eng_sentence,
+                            'chinese': chi_sentence
+                        })
+                        continue
+                        
+                    if eng_len > self.MAX_SENTENCE_LENGTH or chi_len > self.MAX_SENTENCE_LENGTH:
+                        invalid_pairs.append({
+                            'doc_id': doc_id,
+                            'reason': f'句子长度超过最大限制（英文：{eng_len}，中文：{chi_len}）',
+                            'english': eng_sentence,
+                            'chinese': chi_sentence
+                        })
+                        continue
+
+                    # 检查语言
+                    if not self.is_valid_language(eng_sentence, 'en'):
+                        invalid_pairs.append({
+                            'doc_id': doc_id,
+                            'reason': '英文句子语言检测失败',
+                            'english': eng_sentence,
+                            'chinese': chi_sentence
+                        })
+                        continue
+                        
+                    if not self.is_valid_language(chi_sentence, 'zh-cn'):
+                        invalid_pairs.append({
+                            'doc_id': doc_id,
+                            'reason': '中文句子语言检测失败',
+                            'english': eng_sentence,
+                            'chinese': chi_sentence
+                        })
                         continue
 
                     if eng_sentence and chi_sentence:
@@ -183,7 +265,16 @@ If no nominalization structures are found, please return an empty list: []
                             'chinese_sentence': chi_sentence
                         })
             
-            self.log(f"成功提取 {len(sentence_pairs)} 个句对。")
+            # 记录无效句对
+            if invalid_pairs:
+                invalid_file = output_file.replace('.csv', '_invalid.csv')
+                with open(invalid_file, 'w', newline='', encoding='utf-8-sig') as f:
+                    writer = csv.DictWriter(f, fieldnames=['doc_id', 'reason', 'english', 'chinese'])
+                    writer.writeheader()
+                    writer.writerows(invalid_pairs)
+                self.log(f"发现 {len(invalid_pairs)} 个无效句对，已保存到: {invalid_file}")
+            
+            self.log(f"成功提取 {len(sentence_pairs)} 个有效句对。")
             
             # 创建CSV文件并写入表头
             fieldnames = ['doc_id', 'english_sentence', 'chinese_sentence', 

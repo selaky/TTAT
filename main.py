@@ -38,7 +38,7 @@ df.reset_index(drop=True, inplace=True)
 
 # 将成对的中英文句子提取出来
 sentence_pairs = []
-for i in range(0, len(df), 2):
+for i in range(0, len(df)):
     if i + 1 < len(df):
         eng_text_raw = str(df.iloc[i, 1]) # 英文在第二列
         chi_text_raw = str(df.iloc[i, 3]) # 中文在第四列
@@ -50,6 +50,13 @@ for i in range(0, len(df), 2):
 
         # 移除中文句子开头的数字和点 (如 "41 . ", "64 . ")
         chi_sentence = re.sub(r'^\d+\s*\.\s*', '', chi_sentence).strip()
+        
+        # 删除中文句子中的所有空格
+        chi_sentence = re.sub(r'\s+', '', chi_sentence)
+        
+        # 检查英文句子是否是句子
+        if not re.search(r'[.!?;,]$', eng_sentence):
+            continue  # 说明是标题，跳过该句对
 
         if eng_sentence and chi_sentence: # 确保句子不为空
             sentence_pairs.append({
@@ -60,42 +67,41 @@ for i in range(0, len(df), 2):
 print(f"成功提取 {len(sentence_pairs)} 个句对。")
 
 def construct_prompt(english_sentence, chinese_sentence):
-    # 名词化结构定义
+    # 定义名词化结构    
     nominalization_structure_definitions = """
-    Translation techniques:
-    1. Maintain_Noun: The nominalization is translated as a noun in Chinese. Suitable for simple structures or technical terms.
-    2. Shift_Word_Class: The nominalization is translated as a verb, adjective, etc. Used to make the translation more natural in Chinese.
-    3. Omit_Structure: The nominalization is omitted in translation as its meaning is implied in context.
-    4. Reconstruct_Sentence: The overall sentence structure is changed, adjusting word order, voice, etc.
-    5. Difficult_To_Determine: The nominalization has no clear correspondence in translation or is difficult to categorize.
-    """
-    
-    # 翻译技巧定义
+Definition of Nominalization Structure:
+Nominalization is the conversion of actions, states, qualities, or other non-nominal concepts into noun forms or noun phrases.
+Types of Nominalization:
+1. Derivational Nominalization: Formed by adding nominalizing affixes to a verb/adjective (e.g., -ment, -tion, -sion, -cy, -ty, -ance).
+   Example words: 'development', 'protection'.
+2. Conversional Nominalization (Zero Derivation): A verb or adjective used directly as a noun without form change.
+   Example: 'a request' (from 'to request'), 'use' (from 'to use').
+3. Phrasal Nominalization: Specifically the 'V-ing of NP' construction (gerund + 'of' + noun phrase).
+   Example: 'the killing of members', 'the setting up of a committee'.
+"""
+    # 定义翻译技巧
     translation_technique_definitions = """
     Translation techniques:
-1. Maintain_Noun: The nominalization is translated as a noun in Chinese. Suitable for simple structures or technical terms.
-2. Shift_Word_Class: The nominalization is translated as a verb, adjective, etc. Used to make the translation more natural in Chinese.
-3. Omit_Structure: The nominalization is omitted in translation as its meaning is implied in context.
-4. Reconstruct_Sentence: The overall sentence structure is changed, adjusting word order, voice, etc.
-5. Difficult_To_Determine: The nominalization has no clear correspondence in translation or is difficult to categorize.
-    """
-
+1. Maintain_Noun: The nominalization is translated as a noun in Chinese.
+2. Shift_Word_Class: The nominalization is translated as a verb, adjective, etc.
+3. Omit_Structure: The nominalization is omitted in translation.
+4. Reconstruct_Sentence: The overall sentence structure is changed.
+5. Difficult_To_Determine: Difficult to categorize or no clear correspondence.
+    """ 
+    # 整体prompt
     prompt = f"""
     Please analyze the following English sentence from United Nations documents and its Chinese translation.
-
 English original:
 {english_sentence}
-
 Chinese translation:
 {chinese_sentence}
-
 Tasks:
-1. Identify all core nominalization structures in the English sentence.The defininition of nominalization structure is as follows:
+1. Identify all core nominalization structures in the English sentence. The definition of nominalization structure is as follows:
    {nominalization_structure_definitions}
 2. For each identified nominalization structure, provide:
    a. The identified English nominalization structure (Identified_Nominalization_EN)
    b. Type of nominalization (Nominalization_Type): Derivational, Conversional, or Phrasal
-   c. Translation technique used (Translation_Technique). The defininition of translation technique is as follows:
+   c. Translation technique used (Translation_Technique). The definition of translation technique is as follows:
       {translation_technique_definitions}
 
 Please return your analysis as a JSON list, where each element is a dictionary representing an identified nominalization structure:
@@ -215,8 +221,8 @@ for index, pair in enumerate(sentence_pairs):
             'translation_technique': 'N/A'
         })
     
-    # if index >= 9: # 测试前10条
-    #     break
+    if index >= 9: # 测试前10条
+        break
 
 print(f"所有句对处理完毕。共收集到 {len(all_results)} 条结果记录。")
 

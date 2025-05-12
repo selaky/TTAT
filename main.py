@@ -44,6 +44,19 @@ if not excel_file_path:
     print("未选择文件，程序退出。")
     exit()
 
+# 添加保存文件对话框
+output_csv_path = filedialog.asksaveasfilename(
+    title="选择保存位置",
+    defaultextension=".csv",
+    filetypes=[("CSV files", "*.csv")],
+    initialfile="ai_analysis_results.csv"
+)
+
+# 如果用户没有选择保存位置，使用默认路径
+if not output_csv_path:
+    output_csv_path = 'ai_analysis_results.csv'
+    print(f"未选择保存位置，将使用默认路径：{output_csv_path}")
+
 # 跳过前6行元数据，并指定列名
 try:
     df = pd.read_excel(excel_file_path, skiprows=6, header=None, 
@@ -257,7 +270,6 @@ else:
 
 # 将收集到的所有结果转换为DataFrame并保存
 output_df = pd.DataFrame(all_results)
-output_csv_path = 'ai_analysis_results.csv'
 try:
     output_df.to_csv(output_csv_path, index=False, encoding='utf-8-sig') # utf-8-sig 确保Excel正确显示中文
     print(f"结果已保存到: {output_csv_path}")

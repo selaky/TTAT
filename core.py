@@ -5,6 +5,7 @@ import json
 import time
 from typing import List, Dict, Optional, Callable
 from config_manager import ConfigManager
+import csv
 
 class CoreProcessor:
     def __init__(self, config: Dict):
@@ -19,6 +20,9 @@ class CoreProcessor:
         self.TEMPERATURE = config.get("temperature", 0.3)
         self.MAX_TOKENS = config.get("max_tokens", 1000)
         self.MODEL = config.get("model", "gemini-2.5-flash-preview-04-17-nothink")
+        
+        # 设置批处理大小
+        self.BATCH_SIZE = 100
 
     def set_progress_callback(self, callback: Callable[[str], None]):
         """设置进度回调函数"""
@@ -181,50 +185,67 @@ If no nominalization structures are found, please return an empty list: []
             
             self.log(f"成功提取 {len(sentence_pairs)} 个句对。")
             
-            # 处理句对
-            all_results = []
-            for index, pair in enumerate(sentence_pairs):
-                if self.stop_processing:
-                    self.log("处理已停止")
-                    break
-                    
-                self.log(f"正在处理句对 {index + 1}/{len(sentence_pairs)}: {pair['doc_id']}")
+            # 创建CSV文件并写入表头
+            fieldnames = ['doc_id', 'english_sentence', 'chinese_sentence', 
+                         'identified_nominalization_en', 'nominalization_type', 
+                         'translation_technique']
+            
+            with open(output_file, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
                 
-                if index > 0 and index % 5 == 0:
-                    self.log("暂停1秒以避免API速率限制...")
-                    time.sleep(1)
+                # 处理句对
+                batch_results = []
+                for index, pair in enumerate(sentence_pairs):
+                    if self.stop_processing:
+                        self.log("处理已停止")
+                        break
+                        
+                    self.log(f"正在处理句对 {index + 1}/{len(sentence_pairs)}: {pair['doc_id']}")
+                    
+                    if index > 0 and index % 5 == 0:
+                        self.log("暂停1秒以避免API速率限制...")
+                        time.sleep(1)
 
-                analysis_results = self.analyze_sentence_with_ai(
-                    pair['english_sentence'],
-                    pair['chinese_sentence']
-                )
+                    analysis_results = self.analyze_sentence_with_ai(
+                        pair['english_sentence'],
+                        pair['chinese_sentence']
+                    )
 
-                if analysis_results:
-                    for result_item in analysis_results:
-                        combined_result = {
+                    if analysis_results:
+                        for result_item in analysis_results:
+                            result = {
+                                'doc_id': pair['doc_id'],
+                                'english_sentence': pair['english_sentence'],
+                                'chinese_sentence': pair['chinese_sentence'],
+                                'identified_nominalization_en': result_item.get('Identified_Nominalization_EN', 'N/A'),
+                                'nominalization_type': result_item.get('Nominalization_Type', 'N/A'),
+                                'translation_technique': result_item.get('Translation_Technique', 'N/A')
+                            }
+                            batch_results.append(result)
+                    else:
+                        result = {
                             'doc_id': pair['doc_id'],
                             'english_sentence': pair['english_sentence'],
                             'chinese_sentence': pair['chinese_sentence'],
-                            'identified_nominalization_en': result_item.get('Identified_Nominalization_EN', 'N/A'),
-                            'nominalization_type': result_item.get('Nominalization_Type', 'N/A'),
-                            'translation_technique': result_item.get('Translation_Technique', 'N/A')
+                            'identified_nominalization_en': 'AI_NO_RESULT_OR_ERROR',
+                            'nominalization_type': 'N/A',
+                            'translation_technique': 'N/A'
                         }
-                        all_results.append(combined_result)
-                else:
-                    all_results.append({
-                        'doc_id': pair['doc_id'],
-                        'english_sentence': pair['english_sentence'],
-                        'chinese_sentence': pair['chinese_sentence'],
-                        'identified_nominalization_en': 'AI_NO_RESULT_OR_ERROR',
-                        'nominalization_type': 'N/A',
-                        'translation_technique': 'N/A'
-                    })
-
-            # 保存结果
-            output_df = pd.DataFrame(all_results)
-            output_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-            self.log(f"结果已保存到: {output_file}")
+                        batch_results.append(result)
+                    
+                    # 当达到批处理大小时，写入文件并清空缓存
+                    if len(batch_results) >= self.BATCH_SIZE:
+                        writer.writerows(batch_results)
+                        batch_results = []
+                        self.log(f"已处理并保存 {index + 1} 个句对")
+                
+                # 写入剩余的结果
+                if batch_results:
+                    writer.writerows(batch_results)
+                    self.log(f"已处理并保存所有剩余句对")
             
+            self.log(f"结果已保存到: {output_file}")
             return True
             
         except Exception as e:

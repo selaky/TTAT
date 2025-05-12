@@ -35,7 +35,6 @@ class CoreProcessor:
         """构造提示词"""
         # 定义名词化结构    
         nominalization_structure_definitions = """
-Definition of Nominalization Structure:
 Nominalization is the conversion of actions, states, qualities, or other non-nominal concepts into noun forms or noun phrases.
 Types of Nominalization:
 1. Derivational Nominalization: Formed by adding nominalizing affixes to a verb/adjective (e.g., -ment, -tion, -sion, -cy, -ty, -ance).
@@ -47,7 +46,6 @@ Types of Nominalization:
 """
         # 定义翻译技巧
         translation_technique_definitions = """
-    Translation techniques:
 1. Maintain_Noun: The nominalization is translated as a noun in Chinese.
 2. Shift_Word_Class: The nominalization is translated as a verb, adjective, etc.
 3. Omit_Structure: The nominalization is omitted in translation.

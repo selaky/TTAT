@@ -4,13 +4,33 @@ import requests
 import json
 import time
 import os
+import signal
 from dotenv import load_dotenv # 如果使用.env文件
 import tkinter as tk
 from tkinter import filedialog
+from typing import List, Dict
+from config_manager import ConfigManager
 
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
 API_ENDPOINT = os.getenv("API_ENDPOINT")
+
+# 添加全局停止标志
+stop_processing = False
+
+def set_stop_flag():
+    """设置停止标志"""
+    global stop_processing
+    stop_processing = True
+    print("正在停止处理...")
+
+def signal_handler(signum, frame):
+    """处理键盘中断信号"""
+    print("\n检测到键盘中断，正在停止处理...")
+    set_stop_flag()
+
+# 注册信号处理器
+signal.signal(signal.SIGINT, signal_handler)
 
 # 创建文件选择对话框
 root = tk.Tk()
@@ -184,6 +204,11 @@ def analyze_sentence_with_ai(english_sentence, chinese_sentence, api_key, api_en
 
 all_results = []
 for index, pair in enumerate(sentence_pairs):
+    # 检查是否收到停止信号
+    if stop_processing:
+        print("处理已停止")
+        break
+        
     print(f"正在处理句对 {index + 1}/{len(sentence_pairs)}: {pair['doc_id']}")
     
     # 控制API请求频率，避免触发速率限制 (根据你的API提供商调整)
@@ -224,7 +249,11 @@ for index, pair in enumerate(sentence_pairs):
     if index >= 9: # 测试前10条
         break
 
-print(f"所有句对处理完毕。共收集到 {len(all_results)} 条结果记录。")
+# 根据是否停止来显示不同的完成信息
+if stop_processing:
+    print(f"处理中断。已处理 {len(all_results)} 条结果记录。")
+else:
+    print(f"所有句对处理完毕。共收集到 {len(all_results)} 条结果记录。")
 
 # 将收集到的所有结果转换为DataFrame并保存
 output_df = pd.DataFrame(all_results)

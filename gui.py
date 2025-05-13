@@ -7,6 +7,83 @@ from config_manager import ConfigManager
 from core import CoreProcessor
 from logger import logger
 
+class ConfirmDialog(ctk.CTkToplevel):
+    def __init__(self, parent, title: str, message: str, confirm_text: str = "确认", cancel_text: str = "取消"):
+        super().__init__(parent)
+        
+        # 设置窗口
+        self.title(title)
+        self.geometry("320x150")
+        self.resizable(False, False)
+        
+        # 使窗口模态
+        self.grab_set()
+        
+        # 设置窗口位置为主窗口中心
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+        
+        # 存储结果
+        self.result = False
+        
+        # 创建UI
+        self.setup_ui(message, confirm_text, cancel_text)
+        
+    def setup_ui(self, message: str, confirm_text: str, cancel_text: str):
+        """设置UI布局"""
+        # 主容器
+        main_frame = ctk.CTkFrame(self)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # 消息（只显示两句话，居中）
+        message_label = ctk.CTkLabel(
+            main_frame,
+            text=message,
+            wraplength=260,
+            justify="center",
+            font=("Arial", 13)
+        )
+        message_label.pack(pady=(0, 18))
+        
+        # 按钮容器
+        button_frame = ctk.CTkFrame(main_frame)
+        button_frame.pack(fill="x")
+        
+        # 取消按钮
+        cancel_btn = ctk.CTkButton(
+            button_frame,
+            text=cancel_text,
+            command=self.on_cancel,
+            width=100,
+            font=("Arial", 12, "bold")
+        )
+        cancel_btn.pack(side="left", padx=5)
+        
+        # 确认按钮
+        confirm_btn = ctk.CTkButton(
+            button_frame,
+            text=confirm_text,
+            command=self.on_confirm,
+            width=100,
+            fg_color="#E74C3C",
+            hover_color="#C0392B",
+            text_color="white",
+            font=("Arial", 12, "bold")
+        )
+        confirm_btn.pack(side="right", padx=5)
+        
+    def on_confirm(self):
+        """确认按钮回调"""
+        self.result = True
+        self.destroy()
+        
+    def on_cancel(self):
+        """取消按钮回调"""
+        self.result = False
+        self.destroy()
+
 class ConfigDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
@@ -35,6 +112,9 @@ class ConfigDialog(ctk.CTkToplevel):
         self.filter_incomplete_var = tk.BooleanVar(value=self.config.get("filter_incomplete_sentences", True))
         self.mock_mode_var = tk.BooleanVar(value=self.config.get("mock_mode", False))
         
+        # 存储输入框引用
+        self.entry_widgets = {}
+        
         # 标记是否取消配置
         self.cancelled = False
         
@@ -52,6 +132,92 @@ class ConfigDialog(ctk.CTkToplevel):
             self.cancelled = True
         self.destroy()
         
+    def validate_numeric_field(self, value: str, field_name: str, min_value: float = None, max_value: float = None) -> bool:
+        """验证数值字段"""
+        try:
+            if not value.strip():
+                return True  # 允许空值
+                
+            num_value = float(value)
+            
+            if min_value is not None and num_value < min_value:
+                logger.error(f"{field_name} 必须大于等于 {min_value}")
+                return False
+                
+            if max_value is not None and num_value > max_value:
+                logger.error(f"{field_name} 必须小于等于 {max_value}")
+                return False
+                
+            return True
+        except ValueError:
+            logger.error(f"{field_name} 必须是有效的数字")
+            return False
+
+    def highlight_error_field(self, field_name: str, is_error: bool):
+        """高亮显示错误字段"""
+        if field_name in self.entry_widgets:
+            widget = self.entry_widgets[field_name]
+            if is_error:
+                widget.configure(border_color="red")
+            else:
+                widget.configure(border_color=["#3B8ED0", "#1F6AA5"])  # 恢复默认颜色
+
+    def validate_all_fields(self) -> bool:
+        """验证所有字段"""
+        is_valid = True
+        
+        # 验证temperature
+        temp_valid = self.validate_numeric_field(
+            self.temperature_var.get(),
+            "Temperature",
+            min_value=0,
+            max_value=1
+        )
+        self.highlight_error_field("temperature", not temp_valid)
+        is_valid = is_valid and temp_valid
+        
+        # 验证max_tokens
+        tokens_valid = self.validate_numeric_field(
+            self.max_tokens_var.get(),
+            "Max Tokens",
+            min_value=1
+        )
+        self.highlight_error_field("max_tokens", not tokens_valid)
+        is_valid = is_valid and tokens_valid
+        
+        # 验证min_sentence_length
+        min_len_valid = self.validate_numeric_field(
+            self.min_length_var.get(),
+            "最小句子长度",
+            min_value=1
+        )
+        self.highlight_error_field("min_sentence_length", not min_len_valid)
+        is_valid = is_valid and min_len_valid
+        
+        # 验证max_sentence_length
+        max_len_valid = self.validate_numeric_field(
+            self.max_length_var.get(),
+            "最大句子长度",
+            min_value=1
+        )
+        self.highlight_error_field("max_sentence_length", not max_len_valid)
+        is_valid = is_valid and max_len_valid
+        
+        # 验证max_sentence_length > min_sentence_length
+        if max_len_valid and min_len_valid:
+            try:
+                max_len = float(self.max_length_var.get())
+                min_len = float(self.min_length_var.get())
+                if max_len <= min_len:
+                    logger.error("最大句子长度必须大于最小句子长度")
+                    self.highlight_error_field("max_sentence_length", True)
+                    self.highlight_error_field("min_sentence_length", True)
+                    is_valid = False
+            except ValueError:
+                pass
+        
+        return is_valid
+
     def setup_ui(self):
         """设置UI布局，增加滚动条，按钮固定底部"""
         # 主容器，分为内容区和底部按钮区
@@ -112,6 +278,7 @@ class ConfigDialog(ctk.CTkToplevel):
         ctk.CTkLabel(temp_frame, text="Temperature：").pack(side="left", padx=5)
         temp_entry = ctk.CTkEntry(temp_frame, textvariable=self.temperature_var, width=100)
         temp_entry.pack(side="left", padx=5)
+        self.entry_widgets["temperature"] = temp_entry
         ctk.CTkLabel(temp_frame, text="(0-1之间的值)").pack(side="left", padx=5)
         
         # Max Tokens设置
@@ -120,6 +287,7 @@ class ConfigDialog(ctk.CTkToplevel):
         ctk.CTkLabel(tokens_frame, text="Max Tokens：").pack(side="left", padx=5)
         tokens_entry = ctk.CTkEntry(tokens_frame, textvariable=self.max_tokens_var, width=100)
         tokens_entry.pack(side="left", padx=5)
+        self.entry_widgets["max_tokens"] = tokens_entry
         
         # 模拟模式（移到高级设置最后）
         mock_frame = ctk.CTkFrame(advanced_frame)
@@ -140,12 +308,14 @@ class ConfigDialog(ctk.CTkToplevel):
         ctk.CTkLabel(min_len_frame, text="最小长度：").pack(side="left", padx=5)
         min_len_entry = ctk.CTkEntry(min_len_frame, textvariable=self.min_length_var, width=100)
         min_len_entry.pack(side="left", padx=5)
+        self.entry_widgets["min_sentence_length"] = min_len_entry
         ctk.CTkLabel(min_len_frame, text="(推荐: 10-20)").pack(side="left", padx=5)
         max_len_frame = ctk.CTkFrame(length_frame)
         max_len_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(max_len_frame, text="最大长度：").pack(side="left", padx=5)
         max_len_entry = ctk.CTkEntry(max_len_frame, textvariable=self.max_length_var, width=100)
         max_len_entry.pack(side="left", padx=5)
+        self.entry_widgets["max_sentence_length"] = max_len_entry
         ctk.CTkLabel(max_len_frame, text="(推荐: 300-500)").pack(side="left", padx=5)
 
         # 添加句子过滤选项
@@ -191,31 +361,67 @@ class ConfigDialog(ctk.CTkToplevel):
 
     def reset_to_default(self):
         """还原为默认配置"""
-        self.api_endpoint_var.set("")
-        self.api_key_var.set("")
-        self.temperature_var.set("0.3")
-        self.max_tokens_var.set("1000")
-        self.model_var.set("gemini-2.5-flash-preview-04-17-nothink")
-        self.min_length_var.set("10")
-        self.max_length_var.set("500")
-        self.filter_incomplete_var.set(True)
-        self.mock_mode_var.set(False)
+        # 创建确认弹窗
+        dialog = ConfirmDialog(
+            self,
+            "确认还原",
+            "确定要还原为默认配置吗？\n\n" +
+            "此操作将重置所有设置项为默认值。",
+            "还原",
+            "取消"
+        )
+        
+        # 等待用户响应
+        self.wait_window(dialog)
+        
+        # 如果用户确认，执行还原操作
+        if dialog.result:
+            self.api_endpoint_var.set("")
+            self.api_key_var.set("")
+            self.temperature_var.set("0.3")
+            self.max_tokens_var.set("1000")
+            self.model_var.set("gemini-2.5-flash-preview-04-17-nothink")
+            self.min_length_var.set("10")
+            self.max_length_var.set("500")
+            self.filter_incomplete_var.set(True)
+            self.mock_mode_var.set(False)
+            
+            # 重置所有输入框的边框颜色
+            for field in self.entry_widgets:
+                self.highlight_error_field(field, False)
+            
+            logger.info("已还原为默认配置")
 
     def save_config(self):
         """保存配置"""
         try:
-            # 构建新配置
+            # 验证所有字段
+            if not self.validate_all_fields():
+                return
+                
+            # 获取配置管理器的默认值
+            default_config = self.config_manager.default_config
+            
+            # 构建新配置，对空值使用默认值
             new_config = {
                 "api_endpoint": self.api_endpoint_var.get().strip(),
                 "api_key": self.api_key_var.get().strip(),
-                "temperature": float(self.temperature_var.get()),
-                "max_tokens": int(self.max_tokens_var.get()),
-                "model": self.model_var.get().strip(),
-                "min_sentence_length": int(self.min_length_var.get()),
-                "max_sentence_length": int(self.max_length_var.get()),
+                "temperature": float(self.temperature_var.get()) if self.temperature_var.get().strip() else default_config["temperature"],
+                "max_tokens": int(self.max_tokens_var.get()) if self.max_tokens_var.get().strip() else default_config["max_tokens"],
+                "model": self.model_var.get().strip() or default_config["model"],
+                "min_sentence_length": int(self.min_length_var.get()) if self.min_length_var.get().strip() else default_config["min_sentence_length"],
+                "max_sentence_length": int(self.max_length_var.get()) if self.max_length_var.get().strip() else default_config["max_sentence_length"],
                 "filter_incomplete_sentences": self.filter_incomplete_var.get(),
                 "mock_mode": self.mock_mode_var.get()
             }
+            
+            # 检查是否有字段被重置为默认值
+            reset_fields = []
+            for field, value in new_config.items():
+                if field in ["api_endpoint", "api_key"]:  # 跳过必填字段
+                    continue
+                if str(value) != str(self.config.get(field, "")):
+                    reset_fields.append(field)
             
             # 验证已填写的配置
             is_valid, error_msg = self.config_manager.validate_field_values(new_config)
@@ -228,6 +434,12 @@ class ConfigDialog(ctk.CTkToplevel):
             
             # 保存配置
             self.config_manager._save_config()
+            
+            # 如果有字段被重置为默认值，显示提示
+            if reset_fields:
+                reset_message = "以下字段未填写，已自动使用默认值：\n" + "\n".join(f"- {field}" for field in reset_fields)
+                logger.info(reset_message)
+            
             logger.info("配置已保存")
             self.destroy()
             

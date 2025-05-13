@@ -45,59 +45,73 @@ class CoreProcessor:
         logger.info(message)
 
     def construct_prompt(self, english_sentence: str, chinese_sentence: str) -> str:
-        """构造提示词"""
-        # 定义名词化结构    
+        """构造提示词 (精简版)"""
+        # 定义名词化结构 (核心)
         nominalization_structure_definitions = """
-Nominalization is the conversion of actions, states, qualities, or other non-nominal concepts into noun forms or noun phrases.
-Types of Nominalization:
-1. Derivational Nominalization: Formed by adding nominalizing affixes to a verb/adjective (e.g., -ment, -tion, -sion, -cy, -ty, -ance).
-   Example words: 'development', 'protection'.
-2. Conversional Nominalization (Zero Derivation): A verb or adjective used directly as a noun without form change.
-   Example: 'a request' (from 'to request'), 'use' (from 'to use').
-3. Phrasal Nominalization: Specifically the 'V-ing of NP' construction (gerund + 'of' + noun phrase).
-   Example: 'the killing of members', 'the setting up of a committee'.
+Nominalization: Conversion of non-nominal concepts (actions, states, qualities) into noun forms/phrases. Identified noun/phrase could alternatively be a verb/adjective.
+Types:
+1. Derivational: Adding nominalizing affixes (e.g., -ment, -tion, -sion, -ness, -ity, -cy, -ance, -age, -al, -ure) to a VERB or ADJECTIVE base. Focus on clear verb/adjective origin representing an action, process, or state.
+   Examples: 'development' (from 'develop'), 'awareness' (from 'aware').
+   AVOID: Common nouns like 'situation', 'nation' unless context clearly shows nominalized action.
+2. Conversional (Zero Derivation): VERB or ADJECTIVE used as a noun without form change, representing its action/state.
+   Examples: 'a request' (from 'to request'), 'a visit' (from 'to visit').
+   AVOID: Common nouns like 'report', 'plan' unless context shows nominalized action.
+3. Phrasal: Strictly 'V-ing *of* NP' (gerund + 'of' + noun phrase) representing an action/process.
+   Examples: 'the killing of members', 'the setting up of a committee'.
+   AVOID: Other V-ing phrases (e.g., 'implementing resolutions' without 'of NP').
 """
-        # 定义翻译技巧
+        # 定义翻译技巧 (核心)
         translation_technique_definitions = """
-1. Maintain_Noun: The nominalization is translated as a noun in Chinese.
-2. Shift_Word_Class: The nominalization is translated as a verb, adjective, etc.
-3. Omit_Structure: The nominalization is omitted in translation.
-4. Reconstruct_Sentence: The overall sentence structure is changed.
-5. Difficult_To_Determine: Difficult to categorize or no clear correspondence.
-    """ 
+1. Maintain_Noun: English nominalization translated as a Chinese noun/noun phrase, retaining nominal character within a largely similar clausal structure.
+2. Shift_Word_Class: English nominalization translated as a different word class (e.g., verb, adjective) in Chinese, but the surrounding clausal structure is relatively similar.
+3. Omit_Structure: English nominalization (or its core abstract meaning) not explicitly translated; meaning implied, absorbed, or redundant.
+   Example: EN: 'a process of reorganization' -> CN: '开始改组' ('process' is omitted).
+   Example: EN: 'after the completion of a visit' -> CN: '访问之后' ('completion' is omitted as '之后' implies it).
+4. Reconstruct_Sentence: Chinese translation significantly rearranges the syntactic structure of the clause (or larger part of the sentence) where the English nominalization's meaning is expressed. This involves more than local changes to the nominalization (e.g., unpacking into a new clause, voice change, major reordering). If unsure but see significant structural changes, consider this. This may still render the nominalization as a noun/verb within the new structure.
+   Example: EN: 'Questions were also asked on the nature of the NGO...' -> CN: '人们还问到该组织的性质...' (original passive structure related to the nominalized concept 'questions' is changed to an active one, altering the clausal structure).
+   Example: EN: 'the ageing of unpaid assessments with varying uncertainty of collectability remains a concern' -> CN: '未缴摊款久拖不付, 而且在能否收到这些款项方面, 各笔欠款的情况又各不相同, 因此, 这仍然是委员会关切的一个问题' (the complex English nominal phrase is broken down and rephrased into multiple coordinated Chinese clauses, a major structural change).
+5. Difficult_To_Determine: Only if truly ambiguous after considering other categories, especially Reconstruct_Sentence.
+"""
         # 整体prompt
         prompt = f"""
-    Please analyze the following English sentence from United Nations documents and its Chinese translation.
-English original:
+Analyze the English sentence and its Chinese translation for nominalization.
+
+English:
 {english_sentence}
-Chinese translation:
+Chinese:
 {chinese_sentence}
+
 Tasks:
-1. Identify all core nominalization structures in the English sentence. The definition of nominalization structure is as follows:
+1. Identify ONLY core nominalization structures in English strictly fitting these definitions:
    {nominalization_structure_definitions}
-2. For each identified nominalization structure, provide:
-   a. The identified English nominalization structure (Identified_Nominalization_EN)
-   b. Type of nominalization (Nominalization_Type): Derivational, Conversional, or Phrasal
-   c. Translation technique used (Translation_Technique). The definition of translation technique is as follows:
+   CRITICAL: Do NOT identify common nouns or phrases not clearly derived from verbs/adjectives representing actions/states. No infinitives.
+
+2. For each identified nominalization:
+   a. Identified_Nominalization_EN (minimal nominalized phrase)
+   b. Nominalization_Type (Derivational, Conversional, Phrasal)
+   c. Translation_Technique (using these definitions):
       {translation_technique_definitions}
 
-Please return your analysis as a JSON list, where each element is a dictionary representing an identified nominalization structure:
+Return JSON list (empty [] if none found):
 [
-  {{
-    "Identified_Nominalization_EN": "the killing of members",
-    "Nominalization_Type": "Phrasal",
-    "Translation_Technique": "Maintain_Noun"
-  }},
-  {{
-    "Identified_Nominalization_EN": "development",
-    "Nominalization_Type": "Derivational",
-    "Translation_Technique": "Shift_Word_Class"
-  }}
+  {{"Identified_Nominalization_EN": "nominalization", "Nominalization_Type": "Type", "Translation_Technique": "Technique"}},
+  ...
 ]
-If no nominalization structures are found, please return an empty list: []
-
-    """
+Ensure valid JSON.
+"""
         return prompt
+
+    def normalize_nominalization_type(self, result_item: Dict) -> Dict:
+        """标准化Nominalization_Type字段"""
+        nt = result_item.get("Nominalization_Type", "")
+        if "Phrasal" in nt:
+            result_item["Nominalization_Type"] = "Phrasal"
+        elif "Derivational" in nt:
+            result_item["Nominalization_Type"] = "Derivational"
+        elif "Conversional" in nt:
+            result_item["Nominalization_Type"] = "Conversional"
+        # 可根据需要添加更多规则
+        return result_item
 
     def analyze_sentence_with_ai(self, english_sentence: str, chinese_sentence: str) -> List[Dict]:
         """使用AI分析句子"""
@@ -106,7 +120,7 @@ If no nominalization structures are found, please return an empty list: []
             logger.info("模拟模式：返回模拟数据")
             # 模拟API调用延时
             time.sleep(1)
-            # 模拟一些常见的名词化结构
+            # 模拟一些常见的名词化结构，且ai有部分不标准输出
             mock_results = [
                 {
                     "Identified_Nominalization_EN": "development",
@@ -115,11 +129,12 @@ If no nominalization structures are found, please return an empty list: []
                 },
                 {
                     "Identified_Nominalization_EN": "the implementation of policies",
-                    "Nominalization_Type": "Phrasal",
+                    "Nominalization_Type": "Phrasal Nominalization (Gerund Phrase)",
                     "Translation_Technique": "Shift_Word_Class"
                 }
             ]
-            return mock_results
+            # 对模拟数据也做标准化
+            return [self.normalize_nominalization_type(item) for item in mock_results]
 
         prompt = self.construct_prompt(english_sentence, chinese_sentence)
         headers = {
@@ -156,7 +171,8 @@ If no nominalization structures are found, please return an empty list: []
                     json_match = re.search(r'\[.*\]', ai_response_content, re.DOTALL)
                     if json_match:
                         parsed_json = json.loads(json_match.group(0))
-                        return parsed_json
+                        # 对AI返回的每个结果项做标准化
+                        return [self.normalize_nominalization_type(item) for item in parsed_json]
                     else:
                         logger.warning(f"无法从AI回复中提取有效的JSON列表。\nAI回复：\n{ai_response_content}")
                         return []

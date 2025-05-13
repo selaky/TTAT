@@ -36,8 +36,15 @@ class DataProcessor:
         cleaned = re.sub(r'<s>|</s>|doc#\w+\s*', '', text).strip()
         # 移除中文句子开头的数字和点
         cleaned = re.sub(r'^\d+\s*\.\s*', '', cleaned).strip()
-        # 移除多余空格
-        cleaned = re.sub(r'\s+', '', cleaned)
+        
+        # 检查是否为中文句子（通过检测是否包含中文字符）
+        if re.search(r'[\u4e00-\u9fff]', cleaned):
+            # 如果是中文句子，移除所有空格
+            cleaned = re.sub(r'\s+', '', cleaned)
+        else:
+            # 如果是英文句子，只规范化空格（将多个空格替换为单个空格）
+            cleaned = re.sub(r'\s+', ' ', cleaned)
+            
         return cleaned
 
     def is_valid_language(self, text: str, expected_lang: str) -> bool:

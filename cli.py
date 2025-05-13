@@ -11,13 +11,22 @@ from tkinter import filedialog
 from typing import List, Dict
 from config_manager import ConfigManager
 from core import CoreProcessor
+import threading
+import keyboard
+
+# 全局变量用于存储处理器实例
+processor = None
 
 def signal_handler(signum, frame):
     """处理终止信号"""
     print("\n正在终止程序...")
-    if 'processor' in globals():
+    if processor:
         processor.stop()
     sys.exit(0)
+
+def keyboard_listener():
+    """键盘监听函数"""
+    keyboard.add_hotkey('ctrl+q', lambda: signal_handler(signal.SIGINT, None))
 
 # 注册信号处理器
 signal.signal(signal.SIGINT, signal_handler)
@@ -64,6 +73,11 @@ def main():
         return
     
     print("\n配置检查通过，正在启动程序...")
+    print("提示：按 Ctrl+Q 可以随时终止处理并退出程序")
+    
+    # 启动键盘监听
+    keyboard_thread = threading.Thread(target=keyboard_listener, daemon=True)
+    keyboard_thread.start()
     
     # 创建文件选择对话框
     root = tk.Tk()
@@ -96,6 +110,7 @@ def main():
         config, error = config_manager.load_config()
         
         # 创建处理器并处理文件
+        global processor
         processor = CoreProcessor(config)
         success = processor.process_file(excel_file_path, output_csv_path)
 
@@ -106,7 +121,7 @@ def main():
         print("处理完成！")
     except KeyboardInterrupt:
         print("\n用户中断，正在停止处理...")
-        if 'processor' in locals():
+        if processor:
             processor.stop()
     except Exception as e:
         print(f"发生未预期的错误：{str(e)}")

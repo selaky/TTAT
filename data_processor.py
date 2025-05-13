@@ -1,8 +1,9 @@
 import pandas as pd
 import re
 import csv
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Callable
 from langdetect import detect, LangDetectException
+from logger import logger
 
 class DataProcessor:
     def __init__(self, config: Dict):
@@ -12,10 +13,22 @@ class DataProcessor:
         self.MAX_SENTENCE_LENGTH = config.get("max_sentence_length", 500)
         self.FILTER_INCOMPLETE_SENTENCES = config.get("filter_incomplete_sentences", True)
 
+    def set_progress_callback(self, callback: Callable[[str], None]):
+        """设置进度回调函数（保持向后兼容）"""
+        logger.set_callback(callback)
+
+    def log(self, message: str):
+        """记录日志（保持向后兼容）"""
+        logger.info(message)
+
     def read_excel_file(self, input_file: str) -> pd.DataFrame:
         """读取Excel文件"""
-        return pd.read_excel(input_file, skiprows=6, header=None, 
-                           names=['index', 'doc_id', 'english', 'type', 'chinese'])
+        try:
+            return pd.read_excel(input_file, skiprows=6, header=None, 
+                               names=['index', 'doc_id', 'english', 'type', 'chinese'])
+        except Exception as e:
+            logger.error(f"读取Excel文件失败: {str(e)}")
+            raise
 
     def clean_sentence(self, text: str) -> str:
         """清理句子文本"""
@@ -73,32 +86,31 @@ class DataProcessor:
         sentence_pairs = []
         invalid_pairs = []
         
-        for i in range(0, len(df)):
-            if i + 1 < len(df):
-                eng_text_raw = str(df.iloc[i, 1])
-                chi_text_raw = str(df.iloc[i, 3])
-                doc_id = str(df.iloc[i, 0])
+        for i in range(len(df)):
+            eng_text_raw = str(df.iloc[i, 1])
+            chi_text_raw = str(df.iloc[i, 3])
+            doc_id = str(df.iloc[i, 0])
 
-                # 清理句子
-                eng_sentence = self.clean_sentence(eng_text_raw)
-                chi_sentence = self.clean_sentence(chi_text_raw)
+            # 清理句子
+            eng_sentence = self.clean_sentence(eng_text_raw)
+            chi_sentence = self.clean_sentence(chi_text_raw)
 
-                # 验证句对
-                is_valid, reason = self.validate_sentence_pair(eng_sentence, chi_sentence, doc_id)
-                
-                if is_valid:
-                    sentence_pairs.append({
-                        'doc_id': doc_id,
-                        'english_sentence': eng_sentence,
-                        'chinese_sentence': chi_sentence
-                    })
-                else:
-                    invalid_pairs.append({
-                        'doc_id': doc_id,
-                        'reason': reason,
-                        'english': eng_sentence,
-                        'chinese': chi_sentence
-                    })
+            # 验证句对
+            is_valid, reason = self.validate_sentence_pair(eng_sentence, chi_sentence, doc_id)
+            
+            if is_valid:
+                sentence_pairs.append({
+                    'doc_id': doc_id,
+                    'english_sentence': eng_sentence,
+                    'chinese_sentence': chi_sentence
+                })
+            else:
+                invalid_pairs.append({
+                    'doc_id': doc_id,
+                    'reason': reason,
+                    'english': eng_sentence,
+                    'chinese': chi_sentence
+                })
 
         return sentence_pairs, invalid_pairs
 
@@ -106,7 +118,12 @@ class DataProcessor:
         """保存无效句对到文件"""
         if invalid_pairs:
             invalid_file = output_file.replace('.csv', '_invalid.csv')
-            with open(invalid_file, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.DictWriter(f, fieldnames=['doc_id', 'reason', 'english', 'chinese'])
-                writer.writeheader()
-                writer.writerows(invalid_pairs) 
+            try:
+                with open(invalid_file, 'w', newline='', encoding='utf-8-sig') as f:
+                    writer = csv.DictWriter(f, fieldnames=['doc_id', 'reason', 'english', 'chinese'])
+                    writer.writeheader()
+                    writer.writerows(invalid_pairs)
+                logger.info(f"已保存 {len(invalid_pairs)} 个无效句对到: {invalid_file}")
+            except Exception as e:
+                logger.error(f"保存无效句对时发生错误: {str(e)}")
+                raise 

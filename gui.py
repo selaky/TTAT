@@ -5,22 +5,7 @@ import sys
 import threading
 from config_manager import ConfigManager
 from core import CoreProcessor
-
-class LogRedirector:
-    """将print输出重定向到GUI文本框的类"""
-    def __init__(self, text_widget: ctk.CTkTextbox):
-        self.text_widget = text_widget
-        self.original_stdout = sys.stdout
-
-    def write(self, text):
-        self.text_widget.configure(state="normal")
-        self.text_widget.insert("end", text)
-        self.text_widget.see("end")
-        self.text_widget.configure(state="disabled")
-        self.original_stdout.write(text)
-
-    def flush(self):
-        self.original_stdout.flush()
+from logger import logger
 
 class ConfigDialog(ctk.CTkToplevel):
     def __init__(self, parent):
@@ -33,11 +18,11 @@ class ConfigDialog(ctk.CTkToplevel):
         
         # 初始化配置管理器
         self.config_manager = ConfigManager()
-        config, error = self.config_manager.load_config()
+        config, error = self.config_manager.load_config(require_all_fields=False)
         self.config = config or {}
         
         if error:
-            print(f"加载配置时发生错误：{error}")
+            logger.error(f"加载配置时发生错误：{error}")
         
         # 创建变量存储配置值
         self.api_endpoint_var = tk.StringVar(value=self.config.get("api_endpoint", ""))
@@ -197,6 +182,25 @@ class ConfigDialog(ctk.CTkToplevel):
             width=100
         ).pack(side="right", padx=5, pady=10)
 
+        ctk.CTkButton(
+            button_frame,
+            text="还原默认配置",
+            command=self.reset_to_default,
+            width=120
+        ).pack(side="left", padx=5, pady=10)
+
+    def reset_to_default(self):
+        """还原为默认配置"""
+        self.api_endpoint_var.set("")
+        self.api_key_var.set("")
+        self.temperature_var.set("0.3")
+        self.max_tokens_var.set("1000")
+        self.model_var.set("gemini-2.5-flash-preview-04-17-nothink")
+        self.min_length_var.set("10")
+        self.max_length_var.set("500")
+        self.filter_incomplete_var.set(True)
+        self.mock_mode_var.set(False)
+
     def save_config(self):
         """保存配置"""
         try:
@@ -213,18 +217,24 @@ class ConfigDialog(ctk.CTkToplevel):
                 "mock_mode": self.mock_mode_var.get()
             }
             
+            # 验证已填写的配置
+            is_valid, error_msg = self.config_manager.validate_field_values(new_config)
+            if not is_valid:
+                logger.error(f"配置验证失败：{error_msg}")
+                return
+            
             # 更新配置管理器中的配置
             self.config_manager.config = new_config
             
             # 保存配置
             self.config_manager._save_config()
-            print("配置已保存")
+            logger.info("配置已保存")
             self.destroy()
             
         except ValueError as e:
-            print(f"错误：{str(e)}")
+            logger.error(f"错误：{str(e)}")
         except Exception as e:
-            print(f"保存配置时发生错误：{str(e)}")
+            logger.error(f"保存配置时发生错误：{str(e)}")
 
 class MainGUI:
     def __init__(self):
@@ -325,9 +335,8 @@ class MainGUI:
         self.log_text = ctk.CTkTextbox(self.log_frame, wrap="word", state="disabled")
         self.log_text.pack(fill="both", expand=True, padx=5, pady=2)
 
-        # 设置日志重定向
-        self.log_redirector = LogRedirector(self.log_text)
-        sys.stdout = self.log_redirector
+        # 设置日志文本框
+        logger.set_text_widget(self.log_text)
 
     def select_input_file(self):
         """选择输入文件"""
@@ -357,18 +366,17 @@ class MainGUI:
         """开始处理"""
         # 获取配置
         config_manager = ConfigManager()
-        config, error = config_manager.load_config()
+        config, error = config_manager.load_config(require_all_fields=True)
         if not config:
-            print(f"错误：无法加载配置，请先完成设置。{error if error else ''}")
+            logger.error(f"配置不完整，请先完成必要设置。{error if error else ''}")
             return
 
         if not self.input_file_path or not self.output_file_path:
-            print("请先选择输入和输出文件！")
+            logger.error("请先选择输入和输出文件！")
             return
 
         # 创建处理器
         self.processor = CoreProcessor(config)
-        self.processor.set_progress_callback(lambda msg: print(msg))
 
         # 更新UI状态
         self.is_processing = True
@@ -397,7 +405,7 @@ class MainGUI:
             self.root.after(0, self._processing_finished, success)
             
         except Exception as e:
-            print(f"处理过程中发生错误: {str(e)}")
+            logger.error(f"处理过程中发生错误: {str(e)}")
             self.root.after(0, self._processing_finished, False)
 
     def _processing_finished(self, success: bool):
@@ -410,15 +418,15 @@ class MainGUI:
         self.settings_btn.configure(state="normal")
         
         if success:
-            print("处理完成！")
+            logger.info("处理完成！")
         else:
-            print("处理失败！")
+            logger.error("处理失败！")
 
     def stop_processing(self):
         """停止处理"""
         if self.processor:
             self.processor.stop()
-            print("正在停止处理...")
+            logger.info("正在停止处理...")
 
     def open_settings(self):
         """打开设置窗口"""

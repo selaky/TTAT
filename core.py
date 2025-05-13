@@ -6,15 +6,14 @@ import time
 from typing import List, Dict, Optional, Callable
 from config_manager import ConfigManager
 import csv
-from langdetect import detect, LangDetectException
 from data_processor import DataProcessor
+from logger import logger
 
 class CoreProcessor:
     def __init__(self, config: Dict):
         """初始化处理器"""
         self.config = config
         self.stop_processing = False
-        self.progress_callback: Optional[Callable[[str], None]] = None
         
         # 从配置中获取API相关设置
         self.API_KEY = config["api_key"]
@@ -39,41 +38,11 @@ class CoreProcessor:
 
     def set_progress_callback(self, callback: Callable[[str], None]):
         """设置进度回调函数"""
-        self.progress_callback = callback
+        logger.set_callback(callback)
 
     def log(self, message: str):
-        """记录日志"""
-        if self.progress_callback:
-            self.progress_callback(message)
-        else:
-            print(message)
-
-    def is_valid_language(self, text: str, expected_lang: str) -> bool:
-        """
-        检查文本是否符合预期的语言
-        
-        Args:
-            text: 要检查的文本
-            expected_lang: 期望的语言代码 ('en' 或 'zh-cn')
-            
-        Returns:
-            bool: 是否符合预期语言
-        """
-        try:
-            # 如果文本太短，可能无法准确检测
-            if len(text.strip()) < 10:
-                return False
-                
-            detected_lang = detect(text)
-            
-            # 处理中文的特殊情况
-            if expected_lang == 'zh-cn':
-                return detected_lang in ['zh-cn', 'zh-tw', 'zh']
-            else:
-                return detected_lang == expected_lang
-                
-        except LangDetectException:
-            return False
+        """记录日志（保持向后兼容）"""
+        logger.info(message)
 
     def construct_prompt(self, english_sentence: str, chinese_sentence: str) -> str:
         """构造提示词"""
@@ -134,7 +103,7 @@ If no nominalization structures are found, please return an empty list: []
         """使用AI分析句子"""
         # 如果启用模拟模式，返回模拟数据
         if self.MOCK_MODE:
-            self.log("模拟模式：返回模拟数据")
+            logger.info("模拟模式：返回模拟数据")
             # 模拟API调用延时
             time.sleep(1)
             # 模拟一些常见的名词化结构
@@ -180,7 +149,7 @@ If no nominalization structures are found, please return an empty list: []
                 ai_response_content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
                 
                 if not ai_response_content:
-                    self.log("警告：AI返回了空内容。")
+                    logger.warning("AI返回了空内容。")
                     return []
 
                 try:
@@ -189,29 +158,35 @@ If no nominalization structures are found, please return an empty list: []
                         parsed_json = json.loads(json_match.group(0))
                         return parsed_json
                     else:
-                        self.log(f"警告：无法从AI回复中提取有效的JSON列表。\nAI回复：\n{ai_response_content}")
+                        logger.warning(f"无法从AI回复中提取有效的JSON列表。\nAI回复：\n{ai_response_content}")
                         return []
                 except json.JSONDecodeError as e:
-                    self.log(f"错误：解析AI返回的JSON失败。错误信息：{e}\nAI回复：\n{ai_response_content}")
+                    logger.error(f"解析AI返回的JSON失败。错误信息：{e}\nAI回复：\n{ai_response_content}")
                     return []
 
             except requests.exceptions.RequestException as e:
-                self.log(f"API请求错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+                logger.warning(f"API请求错误 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     time.sleep(5 * (attempt + 1))
                 else:
-                    self.log("已达到最大重试次数，跳过此句对。")
+                    logger.error("已达到最大重试次数，跳过此句对。")
                     return []
             except Exception as e:
-                self.log(f"处理API响应时发生未知错误: {e}")
+                logger.error(f"处理API响应时发生未知错误: {e}")
                 return []
         return []
+
+    def process_batch(self, writer: csv.DictWriter, batch_results: List[Dict], index: int, total: int) -> None:
+        """处理并保存一批结果"""
+        if batch_results:
+            writer.writerows(batch_results)
+            logger.info(f"已处理并保存 {index + 1}/{total} 个句对")
 
     def process_file(self, input_file: str, output_file: str) -> bool:
         """处理文件"""
         try:
             # 读取Excel文件
-            self.log("正在读取Excel文件...")
+            logger.info("正在读取Excel文件...")
             df = self.data_processor.read_excel_file(input_file)
             
             # 清理空行
@@ -219,15 +194,14 @@ If no nominalization structures are found, please return an empty list: []
             df.reset_index(drop=True, inplace=True)
             
             # 处理句对
-            self.log("正在处理句对...")
+            logger.info("正在处理句对...")
             sentence_pairs, invalid_pairs = self.data_processor.process_sentence_pairs(df)
             
             # 保存无效句对
             if invalid_pairs:
                 self.data_processor.save_invalid_pairs(invalid_pairs, output_file)
-                self.log(f"发现 {len(invalid_pairs)} 个无效句对，已保存到: {output_file.replace('.csv', '_invalid.csv')}")
             
-            self.log(f"成功提取 {len(sentence_pairs)} 个有效句对。")
+            logger.info(f"成功提取 {len(sentence_pairs)} 个有效句对。")
             
             # 创建CSV文件并写入表头
             fieldnames = ['doc_id', 'english_sentence', 'chinese_sentence', 
@@ -242,13 +216,13 @@ If no nominalization structures are found, please return an empty list: []
                 batch_results = []
                 for index, pair in enumerate(sentence_pairs):
                     if self.stop_processing:
-                        self.log("处理已停止")
+                        logger.info("处理已停止")
                         break
                         
-                    self.log(f"正在处理句对 {index + 1}/{len(sentence_pairs)}: {pair['doc_id']}")
+                    logger.info(f"正在处理句对 {index + 1}/{len(sentence_pairs)}: {pair['doc_id']}")
                     
                     if index > 0 and index % 5 == 0:
-                        self.log("暂停1秒以避免API速率限制...")
+                        logger.info("暂停1秒以避免API速率限制...")
                         time.sleep(1)
 
                     analysis_results = self.analyze_sentence_with_ai(
@@ -280,20 +254,18 @@ If no nominalization structures are found, please return an empty list: []
                     
                     # 当达到批处理大小时，写入文件并清空缓存
                     if len(batch_results) >= self.BATCH_SIZE:
-                        writer.writerows(batch_results)
+                        self.process_batch(writer, batch_results, index, len(sentence_pairs))
                         batch_results = []
-                        self.log(f"已处理并保存 {index + 1} 个句对")
                 
                 # 写入剩余的结果
                 if batch_results:
-                    writer.writerows(batch_results)
-                    self.log(f"已处理并保存所有剩余句对")
+                    self.process_batch(writer, batch_results, len(sentence_pairs) - 1, len(sentence_pairs))
             
-            self.log(f"结果已保存到: {output_file}")
+            logger.info(f"结果已保存到: {output_file}")
             return True
             
         except Exception as e:
-            self.log(f"处理文件时发生错误: {str(e)}")
+            logger.error(f"处理文件时发生错误: {str(e)}")
             return False
 
     def stop(self):

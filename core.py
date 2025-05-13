@@ -29,6 +29,9 @@ class CoreProcessor:
         self.MIN_SENTENCE_LENGTH = config.get("min_sentence_length", 10)
         self.MAX_SENTENCE_LENGTH = config.get("max_sentence_length", 500)
         self.FILTER_INCOMPLETE_SENTENCES = config.get("filter_incomplete_sentences", True)
+        
+        # 模拟模式设置
+        self.MOCK_MODE = config.get("mock_mode", False)
 
     def set_progress_callback(self, callback: Callable[[str], None]):
         """设置进度回调函数"""
@@ -125,6 +128,26 @@ If no nominalization structures are found, please return an empty list: []
 
     def analyze_sentence_with_ai(self, english_sentence: str, chinese_sentence: str) -> List[Dict]:
         """使用AI分析句子"""
+        # 如果启用模拟模式，返回模拟数据
+        if self.MOCK_MODE:
+            self.log("模拟模式：返回模拟数据")
+            # 模拟API调用延时
+            time.sleep(1)
+            # 模拟一些常见的名词化结构
+            mock_results = [
+                {
+                    "Identified_Nominalization_EN": "development",
+                    "Nominalization_Type": "Derivational",
+                    "Translation_Technique": "Maintain_Noun"
+                },
+                {
+                    "Identified_Nominalization_EN": "the implementation of policies",
+                    "Nominalization_Type": "Phrasal",
+                    "Translation_Technique": "Shift_Word_Class"
+                }
+            ]
+            return mock_results
+
         prompt = self.construct_prompt(english_sentence, chinese_sentence)
         headers = {
             "Authorization": f"Bearer {self.API_KEY}",

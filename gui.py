@@ -48,6 +48,7 @@ class ConfigDialog(ctk.CTkToplevel):
         self.min_length_var = tk.StringVar(value=str(self.config.get("min_sentence_length", 10)))
         self.max_length_var = tk.StringVar(value=str(self.config.get("max_sentence_length", 500)))
         self.filter_incomplete_var = tk.BooleanVar(value=self.config.get("filter_incomplete_sentences", True))
+        self.mock_mode_var = tk.BooleanVar(value=self.config.get("mock_mode", False))
         
         # 标记是否取消配置
         self.cancelled = False
@@ -112,22 +113,38 @@ class ConfigDialog(ctk.CTkToplevel):
         advanced_frame = ctk.CTkFrame(scrollable_frame)
         advanced_frame.pack(fill="x", padx=10, pady=10)
         ctk.CTkLabel(advanced_frame, text="高级设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        
+        # 模型设置（移到最前面）
+        model_frame = ctk.CTkFrame(advanced_frame)
+        model_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(model_frame, text="模型：").pack(side="left", padx=5)
+        model_entry = ctk.CTkEntry(model_frame, textvariable=self.model_var, width=300)
+        model_entry.pack(side="left", padx=5)
+        
+        # Temperature设置
         temp_frame = ctk.CTkFrame(advanced_frame)
         temp_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(temp_frame, text="Temperature：").pack(side="left", padx=5)
         temp_entry = ctk.CTkEntry(temp_frame, textvariable=self.temperature_var, width=100)
         temp_entry.pack(side="left", padx=5)
         ctk.CTkLabel(temp_frame, text="(0-1之间的值)").pack(side="left", padx=5)
+        
+        # Max Tokens设置
         tokens_frame = ctk.CTkFrame(advanced_frame)
         tokens_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(tokens_frame, text="Max Tokens：").pack(side="left", padx=5)
         tokens_entry = ctk.CTkEntry(tokens_frame, textvariable=self.max_tokens_var, width=100)
         tokens_entry.pack(side="left", padx=5)
-        model_frame = ctk.CTkFrame(advanced_frame)
-        model_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(model_frame, text="模型：").pack(side="left", padx=5)
-        model_entry = ctk.CTkEntry(model_frame, textvariable=self.model_var, width=300)
-        model_entry.pack(side="left", padx=5)
+        
+        # 模拟模式（移到高级设置最后）
+        mock_frame = ctk.CTkFrame(advanced_frame)
+        mock_frame.pack(fill="x", padx=5, pady=2)
+        mock_checkbox = ctk.CTkCheckBox(
+            mock_frame,
+            text="启用模拟模式（不实际调用API）",
+            variable=self.mock_mode_var
+        )
+        mock_checkbox.pack(side="left", padx=5)
 
         # 句子长度限制区域
         length_frame = ctk.CTkFrame(scrollable_frame)
@@ -192,7 +209,8 @@ class ConfigDialog(ctk.CTkToplevel):
                 "model": self.model_var.get().strip(),
                 "min_sentence_length": int(self.min_length_var.get()),
                 "max_sentence_length": int(self.max_length_var.get()),
-                "filter_incomplete_sentences": self.filter_incomplete_var.get()
+                "filter_incomplete_sentences": self.filter_incomplete_var.get(),
+                "mock_mode": self.mock_mode_var.get()
             }
             
             # 更新配置管理器中的配置

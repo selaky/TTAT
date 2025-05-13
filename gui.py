@@ -47,6 +47,7 @@ class ConfigDialog(ctk.CTkToplevel):
         self.model_var = tk.StringVar(value=self.config.get("model", "gemini-2.5-flash-preview-04-17-nothink"))
         self.min_length_var = tk.StringVar(value=str(self.config.get("min_sentence_length", 10)))
         self.max_length_var = tk.StringVar(value=str(self.config.get("max_sentence_length", 500)))
+        self.filter_incomplete_var = tk.BooleanVar(value=self.config.get("filter_incomplete_sentences", True))
         
         # 标记是否取消配置
         self.cancelled = False
@@ -144,8 +145,18 @@ class ConfigDialog(ctk.CTkToplevel):
         max_len_entry = ctk.CTkEntry(max_len_frame, textvariable=self.max_length_var, width=100)
         max_len_entry.pack(side="left", padx=5)
         ctk.CTkLabel(max_len_frame, text="(推荐: 300-500)").pack(side="left", padx=5)
+
+        # 添加句子过滤选项
+        filter_frame = ctk.CTkFrame(length_frame)
+        filter_frame.pack(fill="x", padx=5, pady=2)
+        filter_checkbox = ctk.CTkCheckBox(
+            filter_frame,
+            text="过滤非完整句子（不以标点符号结尾）",
+            variable=self.filter_incomplete_var
+        )
+        filter_checkbox.pack(side="left", padx=5)
+        
         risk_frame = ctk.CTkFrame(length_frame)
-        risk_frame.pack(fill="x", padx=5, pady=5)
         risk_text = "提示：\n" + \
                    "- 长度设置过低可能导致语言识别不理想。"
         ctk.CTkLabel(risk_frame, text=risk_text, justify="left").pack(anchor="w", padx=5, pady=5)
@@ -180,7 +191,8 @@ class ConfigDialog(ctk.CTkToplevel):
                 "max_tokens": int(self.max_tokens_var.get()),
                 "model": self.model_var.get().strip(),
                 "min_sentence_length": int(self.min_length_var.get()),
-                "max_sentence_length": int(self.max_length_var.get())
+                "max_sentence_length": int(self.max_length_var.get()),
+                "filter_incomplete_sentences": self.filter_incomplete_var.get()
             }
             
             # 更新配置管理器中的配置

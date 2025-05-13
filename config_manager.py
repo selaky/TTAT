@@ -15,7 +15,8 @@ class ConfigManager:
             "max_tokens": 1000,
             "model": "gemini-2.5-flash-preview-04-17-nothink",
             "min_sentence_length": 10,  # 默认最小句子长度
-            "max_sentence_length": 500   # 默认最大句子长度
+            "max_sentence_length": 500,   # 默认最大句子长度
+            "filter_incomplete_sentences": True  # 是否过滤非完整句子
         }
         # 配置元数据
         self.metadata = {
@@ -28,8 +29,9 @@ class ConfigManager:
                     "temperature": "生成文本的随机性程度，范围 0-1，值越大随机性越强",
                     "max_tokens": "生成文本的最大长度",
                     "model": "使用的模型名称",
-                    "min_sentence_length": "最小句子长度限制（字符数）。\n推荐值：10-20\n风险提示：\n- 设置过小可能导致不完整句子被处理\n- 设置过大可能过滤掉有效的短句",
-                    "max_sentence_length": "最大句子长度限制（字符数）。\n推荐值：300-500\n风险提示：\n- 设置过小可能过滤掉有效的长句\n- 设置过大可能导致处理时间过长"
+                    "min_sentence_length": "最小句子长度限制（字符数）。\n推荐值：10-20\n风险提示：设置过小可能导致语言识别不准确",
+                    "max_sentence_length": "最大句子长度限制（字符数）。\n推荐值：300-500",
+                    "filter_incomplete_sentences": "是否过滤不以标点符号结尾的非句子。\n- 开启：只处理以标点符号结尾的完整句子\n- 关闭：处理所有句子，不判断完整性"
                 }
             }
         }

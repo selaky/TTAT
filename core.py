@@ -28,6 +28,7 @@ class CoreProcessor:
         # 设置句子长度限制
         self.MIN_SENTENCE_LENGTH = config.get("min_sentence_length", 10)
         self.MAX_SENTENCE_LENGTH = config.get("max_sentence_length", 500)
+        self.FILTER_INCOMPLETE_SENTENCES = config.get("filter_incomplete_sentences", True)
 
     def set_progress_callback(self, callback: Callable[[str], None]):
         """设置进度回调函数"""
@@ -208,7 +209,7 @@ If no nominalization structures are found, please return an empty list: []
                     chi_sentence = re.sub(r'\s+', '', chi_sentence)
                     
                     # 检查是否完整句子（以标点符号结尾）
-                    if not re.search(r'[.!?;,]$', eng_sentence):
+                    if self.FILTER_INCOMPLETE_SENTENCES and not re.search(r'[.!?;,]$', eng_sentence):
                         invalid_pairs.append({
                             'doc_id': doc_id,
                             'reason': '英文句子不以标点符号结尾',

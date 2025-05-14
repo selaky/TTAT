@@ -1,5 +1,5 @@
 venv/
 config.json
 
-ai_analysis_result.csv
-ai_analysis_result_invalid.csv
+ai_analysis_results.csv
+ai_analysis_results_invalid.csv

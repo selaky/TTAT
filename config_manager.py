@@ -4,6 +4,9 @@ from typing import Dict, Optional, Tuple
 from datetime import datetime
 
 class ConfigManager:
+    # 当前软件版本号
+    CURRENT_VERSION = "1.0.0"
+    
     def __init__(self, config_file: str = "config.json"):
         self.config_file = config_file
         self.config: Dict = {}
@@ -68,6 +71,57 @@ class ConfigManager:
                 "required": False,
                 "type": "boolean",
                 "description": "是否启用模拟模式。\n- 开启：不实际调用API，返回模拟数据\n- 关闭：正常调用API"
+            },
+            "batch_size": {
+                "default": 500,
+                "required": False,
+                "type": "integer",
+                "min": 50,
+                "max": 2000,
+                "description": "每批处理的句子数量。\n推荐值：200-1000\n- 值过小会增加I/O开销\n- 值过大会增加内存占用"
+            },
+            "file_structure": {
+                "default": {
+                    "skip_rows": 6,
+                    "columns": {
+                        "source_doc_id": {
+                            "enabled": True,
+                            "index": 0,
+                            "description": "源语言文档编号列（可选）"
+                        },
+                        "source_text": {
+                            "enabled": True,
+                            "index": 1,
+                            "description": "源语言文本列（必选）"
+                        },
+                        "target_doc_id": {
+                            "enabled": True,
+                            "index": 2,
+                            "description": "目标语言文档编号列（可选）"
+                        },
+                        "target_text": {
+                            "enabled": True,
+                            "index": 3,
+                            "description": "目标语言文本列（必选）"
+                        }
+                    },
+                    "language": {
+                        "source": "en",
+                        "target": "zh-cn",
+                        "description": "源语言和目标语言代码"
+                    }
+                },
+                "required": False,
+                "type": "object",
+                "description": "Excel文件结构配置\n" +
+                             "- skip_rows: 跳过的行数\n" +
+                             "- columns: 各列的配置\n" +
+                             "  - enabled: 是否启用该列\n" +
+                             "  - index: 列索引位置\n" +
+                             "  - description: 列说明\n" +
+                             "- language: 语言设置\n" +
+                             "  - source: 源语言代码\n" +
+                             "  - target: 目标语言代码"
             }
         }
         
@@ -79,7 +133,7 @@ class ConfigManager:
         # 配置元数据
         self.metadata = {
             "_metadata": {
-                "version": "1.0",
+                "version": self.CURRENT_VERSION,
                 "last_updated": datetime.now().strftime("%Y-%m-%d"),
                 "documentation": {
                     key: value["description"] 
@@ -195,6 +249,40 @@ class ConfigManager:
         with open(self.config_file, 'w', encoding='utf-8') as f:
             json.dump(self.config, f, indent=4, ensure_ascii=False)
 
+    def update_config(self) -> Tuple[bool, str]:
+        """
+        更新配置文件到最新版本
+        
+        Returns:
+            Tuple[bool, str]: (是否成功, 错误信息)
+        """
+        try:
+            # 获取当前配置文件的版本
+            current_version = self.config.get("_metadata", {}).get("version", "0.0.0")
+            
+            # 如果版本相同，无需更新
+            if current_version == self.CURRENT_VERSION:
+                return True, "配置文件已是最新版本"
+            
+            # 保存用户当前的配置值
+            user_config = {k: v for k, v in self.config.items() if not k.startswith('_')}
+            
+            # 创建新的配置，合并默认值和用户配置
+            new_config = self.default_config.copy()
+            new_config.update(user_config)
+            
+            # 更新元数据
+            new_config.update(self.metadata)
+            
+            # 保存更新后的配置
+            self.config = new_config
+            self._save_config()
+            
+            return True, f"配置文件已从 {current_version} 更新到 {self.CURRENT_VERSION}"
+            
+        except Exception as e:
+            return False, f"更新配置文件时发生错误：{str(e)}"
+
     def load_config(self, require_all_fields: bool = True) -> Tuple[Optional[Dict], Optional[str]]:
         """
         加载配置文件
@@ -212,6 +300,11 @@ class ConfigManager:
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
+            
+            # 检查并更新配置
+            success, update_msg = self.update_config()
+            if not success:
+                return None, update_msg
             
             # 验证配置
             is_valid, error_msg = self.validate_config(require_all_fields)

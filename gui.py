@@ -111,6 +111,20 @@ class ConfigDialog(ctk.CTkToplevel):
         self.max_length_var = tk.StringVar(value=str(self.config.get("max_sentence_length", 500)))
         self.filter_incomplete_var = tk.BooleanVar(value=self.config.get("filter_incomplete_sentences", True))
         self.mock_mode_var = tk.BooleanVar(value=self.config.get("mock_mode", False))
+        self.batch_size_var = tk.StringVar(value=str(self.config.get("batch_size", 500)))
+        
+        # 文件结构配置变量
+        self.skip_rows_var = tk.StringVar(value=str(self.config.get("file_structure", {}).get("skip_rows", 6)))
+        self.source_lang_var = tk.StringVar(value=self.config.get("file_structure", {}).get("language", {}).get("source", "en"))
+        self.target_lang_var = tk.StringVar(value=self.config.get("file_structure", {}).get("language", {}).get("target", "zh-cn"))
+        
+        # 列配置变量
+        self.column_vars = {}
+        for col_name, col_config in self.config.get("file_structure", {}).get("columns", {}).items():
+            self.column_vars[col_name] = {
+                "enabled": tk.BooleanVar(value=col_config.get("enabled", True)),
+                "index": tk.StringVar(value=str(col_config.get("index", 0)))
+            }
         
         # 存储输入框引用
         self.entry_widgets = {}
@@ -203,6 +217,16 @@ class ConfigDialog(ctk.CTkToplevel):
         self.highlight_error_field("max_sentence_length", not max_len_valid)
         is_valid = is_valid and max_len_valid
         
+        # 验证batch_size
+        batch_valid = self.validate_numeric_field(
+            self.batch_size_var.get(),
+            "每批处理数量",
+            min_value=50,
+            max_value=2000
+        )
+        self.highlight_error_field("batch_size", not batch_valid)
+        is_valid = is_valid and batch_valid
+        
         # 验证max_sentence_length > min_sentence_length
         if max_len_valid and min_len_valid:
             try:
@@ -245,93 +269,32 @@ class ConfigDialog(ctk.CTkToplevel):
             canvas.configure(scrollregion=canvas.bbox("all"))
         scrollable_frame.bind("<Configure>", on_frame_configure)
 
+        # 添加鼠标滚轮事件处理
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def _bind_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            
+        def _unbind_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+            
+        # 当鼠标进入canvas时绑定滚轮事件，离开时解绑
+        canvas.bind("<Enter>", _bind_mousewheel)
+        canvas.bind("<Leave>", _unbind_mousewheel)
+
         # ========== 以下内容全部放到scrollable_frame里 ========== #
-        # API设置区域
-        api_frame = ctk.CTkFrame(scrollable_frame)
-        api_frame.pack(fill="x", padx=10, pady=5)
-        ctk.CTkLabel(api_frame, text="API设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
-        endpoint_frame = ctk.CTkFrame(api_frame)
-        endpoint_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(endpoint_frame, text="API端点：").pack(side="left", padx=5)
-        ctk.CTkEntry(endpoint_frame, textvariable=self.api_endpoint_var, width=300).pack(side="left", padx=5)
-        key_frame = ctk.CTkFrame(api_frame)
-        key_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(key_frame, text="API密钥：").pack(side="left", padx=5)
-        key_entry = ctk.CTkEntry(key_frame, textvariable=self.api_key_var, width=300, show="*")
-        key_entry.pack(side="left", padx=5)
-
-        # 高级设置区域
-        advanced_frame = ctk.CTkFrame(scrollable_frame)
-        advanced_frame.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(advanced_frame, text="高级设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        # 创建标签页
+        tabview = ctk.CTkTabview(scrollable_frame)
+        tabview.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # 模型设置（移到最前面）
-        model_frame = ctk.CTkFrame(advanced_frame)
-        model_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(model_frame, text="模型：").pack(side="left", padx=5)
-        model_entry = ctk.CTkEntry(model_frame, textvariable=self.model_var, width=300)
-        model_entry.pack(side="left", padx=5)
+        # API标签页
+        api_tab = tabview.add("API")
+        self.setup_api_tab(api_tab)
         
-        # Temperature设置
-        temp_frame = ctk.CTkFrame(advanced_frame)
-        temp_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(temp_frame, text="Temperature：").pack(side="left", padx=5)
-        temp_entry = ctk.CTkEntry(temp_frame, textvariable=self.temperature_var, width=100)
-        temp_entry.pack(side="left", padx=5)
-        self.entry_widgets["temperature"] = temp_entry
-        ctk.CTkLabel(temp_frame, text="(0-1之间的值)").pack(side="left", padx=5)
-        
-        # Max Tokens设置
-        tokens_frame = ctk.CTkFrame(advanced_frame)
-        tokens_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(tokens_frame, text="Max Tokens：").pack(side="left", padx=5)
-        tokens_entry = ctk.CTkEntry(tokens_frame, textvariable=self.max_tokens_var, width=100)
-        tokens_entry.pack(side="left", padx=5)
-        self.entry_widgets["max_tokens"] = tokens_entry
-        
-        # 模拟模式（移到高级设置最后）
-        mock_frame = ctk.CTkFrame(advanced_frame)
-        mock_frame.pack(fill="x", padx=5, pady=2)
-        mock_checkbox = ctk.CTkCheckBox(
-            mock_frame,
-            text="启用模拟模式（不实际调用API）",
-            variable=self.mock_mode_var
-        )
-        mock_checkbox.pack(side="left", padx=5)
-
-        # 句子长度限制区域
-        length_frame = ctk.CTkFrame(scrollable_frame)
-        length_frame.pack(fill="x", padx=10, pady=10)
-        ctk.CTkLabel(length_frame, text="句子长度限制", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
-        min_len_frame = ctk.CTkFrame(length_frame)
-        min_len_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(min_len_frame, text="最小长度：").pack(side="left", padx=5)
-        min_len_entry = ctk.CTkEntry(min_len_frame, textvariable=self.min_length_var, width=100)
-        min_len_entry.pack(side="left", padx=5)
-        self.entry_widgets["min_sentence_length"] = min_len_entry
-        ctk.CTkLabel(min_len_frame, text="(推荐: 10-20)").pack(side="left", padx=5)
-        max_len_frame = ctk.CTkFrame(length_frame)
-        max_len_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(max_len_frame, text="最大长度：").pack(side="left", padx=5)
-        max_len_entry = ctk.CTkEntry(max_len_frame, textvariable=self.max_length_var, width=100)
-        max_len_entry.pack(side="left", padx=5)
-        self.entry_widgets["max_sentence_length"] = max_len_entry
-        ctk.CTkLabel(max_len_frame, text="(推荐: 300-500)").pack(side="left", padx=5)
-
-        # 添加句子过滤选项
-        filter_frame = ctk.CTkFrame(length_frame)
-        filter_frame.pack(fill="x", padx=5, pady=2)
-        filter_checkbox = ctk.CTkCheckBox(
-            filter_frame,
-            text="过滤非完整句子（不以标点符号结尾）",
-            variable=self.filter_incomplete_var
-        )
-        filter_checkbox.pack(side="left", padx=5)
-        
-        risk_frame = ctk.CTkFrame(length_frame)
-        risk_text = "提示：\n" + \
-                   "- 长度设置过低可能导致语言识别不理想。"
-        ctk.CTkLabel(risk_frame, text=risk_text, justify="left").pack(anchor="w", padx=5, pady=5)
+        # 文件标签页
+        file_tab = tabview.add("文件")
+        self.setup_file_tab(file_tab)
 
         # ========== 底部按钮区，固定在窗口底部 ========== #
         button_frame = ctk.CTkFrame(self)
@@ -359,38 +322,181 @@ class ConfigDialog(ctk.CTkToplevel):
             width=120
         ).pack(side="left", padx=5, pady=10)
 
-    def reset_to_default(self):
-        """还原为默认配置"""
-        # 创建确认弹窗
-        dialog = ConfirmDialog(
-            self,
-            "确认还原",
-            "确定要还原为默认配置吗？\n\n" +
-            "此操作将重置所有设置项为默认值。",
-            "还原",
-            "取消"
+    def setup_api_tab(self, parent):
+        """设置API标签页"""
+        # 基础设置区域
+        basic_frame = ctk.CTkFrame(parent)
+        basic_frame.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(basic_frame, text="基础设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        
+        endpoint_frame = ctk.CTkFrame(basic_frame)
+        endpoint_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(endpoint_frame, text="API端点：").pack(side="left", padx=5)
+        ctk.CTkEntry(endpoint_frame, textvariable=self.api_endpoint_var, width=300).pack(side="left", padx=5)
+        
+        key_frame = ctk.CTkFrame(basic_frame)
+        key_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(key_frame, text="API密钥：").pack(side="left", padx=5)
+        key_entry = ctk.CTkEntry(key_frame, textvariable=self.api_key_var, width=300, show="*")
+        key_entry.pack(side="left", padx=5)
+
+        # 模型参数区域
+        model_frame = ctk.CTkFrame(parent)
+        model_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(model_frame, text="模型参数", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        
+        model_select_frame = ctk.CTkFrame(model_frame)
+        model_select_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(model_select_frame, text="模型：").pack(side="left", padx=5)
+        model_entry = ctk.CTkEntry(model_select_frame, textvariable=self.model_var, width=300)
+        model_entry.pack(side="left", padx=5)
+        
+        temp_frame = ctk.CTkFrame(model_frame)
+        temp_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(temp_frame, text="Temperature：").pack(side="left", padx=5)
+        temp_entry = ctk.CTkEntry(temp_frame, textvariable=self.temperature_var, width=100)
+        temp_entry.pack(side="left", padx=5)
+        self.entry_widgets["temperature"] = temp_entry
+        ctk.CTkLabel(temp_frame, text="(0-1之间的值)").pack(side="left", padx=5)
+        
+        tokens_frame = ctk.CTkFrame(model_frame)
+        tokens_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(tokens_frame, text="Max Tokens：").pack(side="left", padx=5)
+        tokens_entry = ctk.CTkEntry(tokens_frame, textvariable=self.max_tokens_var, width=100)
+        tokens_entry.pack(side="left", padx=5)
+        self.entry_widgets["max_tokens"] = tokens_entry
+
+        # 运行模式区域
+        mode_frame = ctk.CTkFrame(parent)
+        mode_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(mode_frame, text="运行模式", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        
+        mock_frame = ctk.CTkFrame(mode_frame)
+        mock_frame.pack(fill="x", padx=5, pady=2)
+        mock_checkbox = ctk.CTkCheckBox(
+            mock_frame,
+            text="启用模拟模式（不实际调用API）",
+            variable=self.mock_mode_var
         )
+        mock_checkbox.pack(side="left", padx=5)
+
+    def setup_file_tab(self, parent):
+        """设置文件标签页"""
+        # 语言设置区域
+        lang_frame = ctk.CTkFrame(parent)
+        lang_frame.pack(fill="x", padx=10, pady=5)
+        ctk.CTkLabel(lang_frame, text="语言设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
         
-        # 等待用户响应
-        self.wait_window(dialog)
+        source_lang_frame = ctk.CTkFrame(lang_frame)
+        source_lang_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(source_lang_frame, text="源语言：").pack(side="left", padx=5)
+        source_lang_entry = ctk.CTkEntry(source_lang_frame, textvariable=self.source_lang_var, width=100)
+        source_lang_entry.pack(side="left", padx=5)
+        ctk.CTkLabel(source_lang_frame, text="(例如: en)").pack(side="left", padx=5)
         
-        # 如果用户确认，执行还原操作
-        if dialog.result:
-            self.api_endpoint_var.set("")
-            self.api_key_var.set("")
-            self.temperature_var.set("0.3")
-            self.max_tokens_var.set("1000")
-            self.model_var.set("gemini-2.5-flash-preview-04-17-nothink")
-            self.min_length_var.set("10")
-            self.max_length_var.set("500")
-            self.filter_incomplete_var.set(True)
-            self.mock_mode_var.set(False)
+        target_lang_frame = ctk.CTkFrame(lang_frame)
+        target_lang_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(target_lang_frame, text="目标语言：").pack(side="left", padx=5)
+        target_lang_entry = ctk.CTkEntry(target_lang_frame, textvariable=self.target_lang_var, width=100)
+        target_lang_entry.pack(side="left", padx=5)
+        ctk.CTkLabel(target_lang_frame, text="(例如: zh-cn)").pack(side="left", padx=5)
+        
+        # 列设置区域
+        columns_frame = ctk.CTkFrame(parent)
+        columns_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(columns_frame, text="列设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        
+        # 列配置表格
+        for col_name, col_config in self.column_vars.items():
+            col_frame = ctk.CTkFrame(columns_frame)
+            col_frame.pack(fill="x", padx=5, pady=2)
             
-            # 重置所有输入框的边框颜色
-            for field in self.entry_widgets:
-                self.highlight_error_field(field, False)
+            # 列名
+            col_label = ctk.CTkLabel(col_frame, text=self.get_column_display_name(col_name))
+            col_label.pack(side="left", padx=5)
             
-            logger.info("已还原为默认配置")
+            # 启用复选框（仅对可选列显示）
+            if col_name not in ['source_text', 'target_text']:
+                enabled_checkbox = ctk.CTkCheckBox(
+                    col_frame,
+                    text="启用",
+                    variable=col_config["enabled"]
+                )
+                enabled_checkbox.pack(side="left", padx=5)
+            
+            # 列索引
+            ctk.CTkLabel(col_frame, text="列索引：").pack(side="right", padx=5)
+            index_entry = ctk.CTkEntry(col_frame, textvariable=col_config["index"], width=50)
+            index_entry.pack(side="right", padx=5)
+
+        # 处理参数区域
+        process_frame = ctk.CTkFrame(parent)
+        process_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(process_frame, text="处理参数", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
+        
+        # 跳过行数设置
+        skip_rows_frame = ctk.CTkFrame(process_frame)
+        skip_rows_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(skip_rows_frame, text="跳过行数：").pack(side="left", padx=5)
+        skip_rows_entry = ctk.CTkEntry(skip_rows_frame, textvariable=self.skip_rows_var, width=50)
+        skip_rows_entry.pack(side="left", padx=5)
+        ctk.CTkLabel(skip_rows_frame, text="(从第几行开始读取数据)").pack(side="left", padx=5)
+        
+        # 每批处理数量
+        batch_frame = ctk.CTkFrame(process_frame)
+        batch_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(batch_frame, text="每批处理数量：").pack(side="left", padx=5)
+        batch_entry = ctk.CTkEntry(batch_frame, textvariable=self.batch_size_var, width=100)
+        batch_entry.pack(side="left", padx=5)
+        self.entry_widgets["batch_size"] = batch_entry
+        ctk.CTkLabel(batch_frame, text="(推荐: 200-1000)").pack(side="left", padx=5)
+        
+        # 句子长度设置
+        length_frame = ctk.CTkFrame(process_frame)
+        length_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(length_frame, text="句子长度：").pack(side="left", padx=5)
+        
+        min_len_frame = ctk.CTkFrame(length_frame)
+        min_len_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(min_len_frame, text="最小长度：").pack(side="left", padx=5)
+        min_len_entry = ctk.CTkEntry(min_len_frame, textvariable=self.min_length_var, width=100)
+        min_len_entry.pack(side="left", padx=5)
+        self.entry_widgets["min_sentence_length"] = min_len_entry
+        ctk.CTkLabel(min_len_frame, text="(推荐: 10-20)").pack(side="left", padx=5)
+        
+        max_len_frame = ctk.CTkFrame(length_frame)
+        max_len_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(max_len_frame, text="最大长度：").pack(side="left", padx=5)
+        max_len_entry = ctk.CTkEntry(max_len_frame, textvariable=self.max_length_var, width=100)
+        max_len_entry.pack(side="left", padx=5)
+        self.entry_widgets["max_sentence_length"] = max_len_entry
+        ctk.CTkLabel(max_len_frame, text="(推荐: 300-500)").pack(side="left", padx=5)
+        
+        # 过滤选项
+        filter_frame = ctk.CTkFrame(process_frame)
+        filter_frame.pack(fill="x", padx=5, pady=2)
+        filter_checkbox = ctk.CTkCheckBox(
+            filter_frame,
+            text="过滤非完整句子（不以标点符号结尾）",
+            variable=self.filter_incomplete_var
+        )
+        filter_checkbox.pack(side="left", padx=5)
+        
+        # 风险提示
+        risk_frame = ctk.CTkFrame(process_frame)
+        risk_text = "提示：\n" + \
+                   "- 长度设置过低可能导致语言识别不理想。"
+        ctk.CTkLabel(risk_frame, text=risk_text, justify="left").pack(anchor="w", padx=5, pady=5)
+
+    def get_column_display_name(self, col_name: str) -> str:
+        """获取列的中文显示名称"""
+        display_names = {
+            "source_doc_id": "源语言文档编号",
+            "source_text": "源语言文本",
+            "target_doc_id": "目标语言文档编号",
+            "target_text": "目标语言文本"
+        }
+        return display_names.get(col_name, col_name)
 
     def save_config(self):
         """保存配置"""
@@ -412,7 +518,22 @@ class ConfigDialog(ctk.CTkToplevel):
                 "min_sentence_length": int(self.min_length_var.get()) if self.min_length_var.get().strip() else default_config["min_sentence_length"],
                 "max_sentence_length": int(self.max_length_var.get()) if self.max_length_var.get().strip() else default_config["max_sentence_length"],
                 "filter_incomplete_sentences": self.filter_incomplete_var.get(),
-                "mock_mode": self.mock_mode_var.get()
+                "mock_mode": self.mock_mode_var.get(),
+                "batch_size": int(self.batch_size_var.get()) if self.batch_size_var.get().strip() else default_config["batch_size"],
+                "file_structure": {
+                    "skip_rows": int(self.skip_rows_var.get()) if self.skip_rows_var.get().strip() else 6,
+                    "language": {
+                        "source": self.source_lang_var.get().strip() or "en",
+                        "target": self.target_lang_var.get().strip() or "zh-cn"
+                    },
+                    "columns": {
+                        col_name: {
+                            "enabled": col_config["enabled"].get(),
+                            "index": int(col_config["index"].get()) if col_config["index"].get().strip() else 0
+                        }
+                        for col_name, col_config in self.column_vars.items()
+                    }
+                }
             }
             
             # 检查是否有字段被重置为默认值
@@ -447,6 +568,48 @@ class ConfigDialog(ctk.CTkToplevel):
             logger.error(f"错误：{str(e)}")
         except Exception as e:
             logger.error(f"保存配置时发生错误：{str(e)}")
+
+    def reset_to_default(self):
+        """还原为默认配置"""
+        # 创建确认弹窗
+        dialog = ConfirmDialog(
+            self,
+            "确认还原",
+            "确定要还原为默认配置吗？\n\n" +
+            "此操作将重置所有设置项为默认值。",
+            "还原",
+            "取消"
+        )
+        
+        # 等待用户响应
+        self.wait_window(dialog)
+        
+        # 如果用户确认，执行还原操作
+        if dialog.result:
+            self.api_endpoint_var.set("")
+            self.api_key_var.set("")
+            self.temperature_var.set("0.3")
+            self.max_tokens_var.set("1000")
+            self.model_var.set("gemini-2.5-flash-preview-04-17-nothink")
+            self.min_length_var.set("10")
+            self.max_length_var.set("500")
+            self.filter_incomplete_var.set(True)
+            self.mock_mode_var.set(False)
+            self.batch_size_var.set("500")
+            
+            # 重置文件结构配置
+            self.skip_rows_var.set("6")
+            self.source_lang_var.set("en")
+            self.target_lang_var.set("zh-cn")
+            for col_name, col_config in self.column_vars.items():
+                col_config["enabled"].set(True)
+                col_config["index"].set(str(self.config_manager.default_config["file_structure"]["columns"][col_name]["index"]))
+            
+            # 重置所有输入框的边框颜色
+            for field in self.entry_widgets:
+                self.highlight_error_field(field, False)
+            
+            logger.info("已还原为默认配置")
 
 class MainGUI:
     def __init__(self):

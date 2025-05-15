@@ -22,9 +22,6 @@ class CoreProcessor:
         self.MAX_TOKENS = config.get("max_tokens", 1000)
         self.MODEL = config.get("model", "gemini-2.5-flash-preview-04-17-nothink")
         
-        # 设置批处理大小
-        self.BATCH_SIZE = 100
-        
         # 设置句子长度限制
         self.MIN_SENTENCE_LENGTH = config.get("min_sentence_length", 10)
         self.MAX_SENTENCE_LENGTH = config.get("max_sentence_length", 500)
@@ -46,6 +43,10 @@ class CoreProcessor:
 
     def construct_prompt(self, english_sentence: str, chinese_sentence: str) -> str:
         """构造提示词 (精简版)"""
+        # 转义句子中的引号，避免影响JSON解析
+        english_sentence = english_sentence.replace('"', '\\"').replace("'", "\\'")
+        chinese_sentence = chinese_sentence.replace('"', '\\"').replace("'", "\\'")
+        
         # 定义名词化结构 (核心)
         nominalization_structure_definitions = """
 Nominalization: Conversion of non-nominal concepts (actions, states, qualities) into noun forms/phrases. Identified noun/phrase could alternatively be a verb/adjective.
@@ -168,7 +169,8 @@ Ensure valid JSON.
                     return []
 
                 try:
-                    json_match = re.search(r'\[.*\]', ai_response_content, re.DOTALL)
+                    # 使用更健壮的JSON提取方法
+                    json_match = re.search(r'\[[\s\S]*\]', ai_response_content)
                     if json_match:
                         parsed_json = json.loads(json_match.group(0))
                         # 对AI返回的每个结果项做标准化
@@ -192,91 +194,91 @@ Ensure valid JSON.
                 return []
         return []
 
-    def process_batch(self, writer: csv.DictWriter, batch_results: List[Dict], index: int, total: int) -> None:
-        """处理并保存一批结果"""
-        if batch_results:
-            writer.writerows(batch_results)
-            logger.info(f"已处理并保存 {index + 1}/{total} 个句对")
-
     def process_file(self, input_file: str, output_file: str) -> bool:
         """处理文件"""
         try:
-            # 读取Excel文件
-            logger.info("正在读取Excel文件...")
-            df = self.data_processor.read_excel_file(input_file)
-            
-            # 清理空行
-            df.dropna(how='all', inplace=True)
-            df.reset_index(drop=True, inplace=True)
-            
-            # 处理句对
-            logger.info("正在处理句对...")
-            sentence_pairs, invalid_pairs = self.data_processor.process_sentence_pairs(df)
-            
-            # 保存无效句对
-            if invalid_pairs:
-                self.data_processor.save_invalid_pairs(invalid_pairs, output_file)
-            
-            logger.info(f"成功提取 {len(sentence_pairs)} 个有效句对。")
+            logger.info(f"开始处理文件: {input_file}")
+            logger.info(f"输出文件: {output_file}")
             
             # 创建CSV文件并写入表头
-            fieldnames = ['doc_id', 'english_sentence', 'chinese_sentence', 
+            fieldnames = ['source_doc_id', 'source_sentence', 'target_doc_id', 'target_sentence', 
                          'identified_nominalization_en', 'nominalization_type', 
                          'translation_technique']
             
             with open(output_file, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
                 writer.writeheader()
+            
+            # 分批处理句对
+            total_processed = 0
+            total_analyzed = 0
+            total_valid = 0
+            total_invalid = 0
+            batch_count = 0
+            
+            for batch_sentence_pairs, batch_invalid_pairs in self.data_processor.process_sentence_pairs_batch(input_file):
+                if self.stop_processing:
+                    logger.info("处理已停止")
+                    break
                 
-                # 处理句对
-                batch_results = []
-                for index, pair in enumerate(sentence_pairs):
+                batch_count += 1
+                logger.info(f"开始处理第 {batch_count} 批，包含 {len(batch_sentence_pairs)} 个有效句对")
+                
+                # 保存无效句对
+                if batch_invalid_pairs:
+                    self.data_processor.save_invalid_pairs(batch_invalid_pairs, output_file)
+                    total_invalid += len(batch_invalid_pairs)
+                
+                # 处理当前批次的句对
+                for pair in batch_sentence_pairs:
                     if self.stop_processing:
-                        logger.info("处理已停止")
                         break
                         
-                    logger.info(f"正在处理句对 {index + 1}/{len(sentence_pairs)}: {pair['doc_id']}")
+                    total_processed += 1
+                    total_valid += 1
+                    logger.info(f"正在处理第 {total_processed} 个句对")
                     
-                    if index > 0 and index % 5 == 0:
+                    if total_processed > 1 and total_processed % 5 == 0:
                         logger.info("暂停1秒以避免API速率限制...")
                         time.sleep(1)
 
                     analysis_results = self.analyze_sentence_with_ai(
-                        pair['english_sentence'],
-                        pair['chinese_sentence']
+                        pair['source_sentence'],
+                        pair['target_sentence']
                     )
 
-                    if analysis_results:
-                        for result_item in analysis_results:
+                    # 追加写入结果
+                    with open(output_file, 'a', newline='', encoding='utf-8-sig') as f:
+                        writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
+                        
+                        if analysis_results:
+                            total_analyzed += 1
+                            for result_item in analysis_results:
+                                result = {
+                                    'source_doc_id': pair['source_doc_id'],
+                                    'source_sentence': pair['source_sentence'],
+                                    'target_doc_id': pair.get('target_doc_id', ''),
+                                    'target_sentence': pair['target_sentence'],
+                                    'identified_nominalization_en': result_item.get('Identified_Nominalization_EN', 'N/A'),
+                                    'nominalization_type': result_item.get('Nominalization_Type', 'N/A'),
+                                    'translation_technique': result_item.get('Translation_Technique', 'N/A')
+                                }
+                                writer.writerow(result)
+                        else:
                             result = {
-                                'doc_id': pair['doc_id'],
-                                'english_sentence': pair['english_sentence'],
-                                'chinese_sentence': pair['chinese_sentence'],
-                                'identified_nominalization_en': result_item.get('Identified_Nominalization_EN', 'N/A'),
-                                'nominalization_type': result_item.get('Nominalization_Type', 'N/A'),
-                                'translation_technique': result_item.get('Translation_Technique', 'N/A')
+                                'source_doc_id': pair['source_doc_id'],
+                                'source_sentence': pair['source_sentence'],
+                                'target_doc_id': pair.get('target_doc_id', ''),
+                                'target_sentence': pair['target_sentence'],
+                                'identified_nominalization_en': 'AI_NO_RESULT_OR_ERROR',
+                                'nominalization_type': 'N/A',
+                                'translation_technique': 'N/A'
                             }
-                            batch_results.append(result)
-                    else:
-                        result = {
-                            'doc_id': pair['doc_id'],
-                            'english_sentence': pair['english_sentence'],
-                            'chinese_sentence': pair['chinese_sentence'],
-                            'identified_nominalization_en': 'AI_NO_RESULT_OR_ERROR',
-                            'nominalization_type': 'N/A',
-                            'translation_technique': 'N/A'
-                        }
-                        batch_results.append(result)
-                    
-                    # 当达到批处理大小时，写入文件并清空缓存
-                    if len(batch_results) >= self.BATCH_SIZE:
-                        self.process_batch(writer, batch_results, index, len(sentence_pairs))
-                        batch_results = []
+                            writer.writerow(result)
                 
-                # 写入剩余的结果
-                if batch_results:
-                    self.process_batch(writer, batch_results, len(sentence_pairs) - 1, len(sentence_pairs))
+                logger.info(f"第 {batch_count} 批处理完成")
             
+            logger.info(f"处理完成，总计：\n- 总处理句对：{total_processed}\n- 有效句对：{total_valid}\n- 无效句对：{total_invalid}\n- 成功分析句对：{total_analyzed}\n- 处理批次数：{batch_count}")
             logger.info(f"结果已保存到: {output_file}")
             return True
             

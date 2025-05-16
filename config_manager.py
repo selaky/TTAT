@@ -126,9 +126,13 @@ class ConfigManager:
         }
         
         # 从schema生成默认配置
-        self.default_config = {
-            key: value["default"] for key, value in self.config_schema.items()
-        }
+        self.default_config = {}
+        for key, value in self.config_schema.items():
+            if isinstance(value.get("default"), dict):
+                # 对于嵌套的字典，进行深拷贝
+                self.default_config[key] = value["default"].copy()
+            else:
+                self.default_config[key] = value["default"]
         
         # 配置元数据
         self.metadata = {

@@ -114,8 +114,12 @@ class DataProcessor:
                 
             detected_lang = detect(text)
             
+            # 处理中文变体
             if expected_lang == 'zh-cn':
                 return detected_lang in ['zh-cn', 'zh-tw', 'zh']
+            elif expected_lang == 'zh-tw':
+                return detected_lang in ['zh-tw', 'zh-cn', 'zh']
+            # 处理其他语言
             else:
                 return detected_lang == expected_lang
                 
@@ -136,11 +140,11 @@ class DataProcessor:
                 '\u2018', '\u2019', '\u201c', '\u201d',  # 英文弯引号
                 '\u0022', '\u0027',  # 直引号
                 '\u00ab', '\u00bb',  # 法式引号
-                '"', "'", '“', '”', '‘', '’', '«', '»',
+                '"', "'", '""', '"', ''', ''', '«', '»',
                 '(', ')', '[', ']', '{', '}'
             ]
             i = len(source_text) - 1
-            while i >= 0 and (source_text[i] in ignore_chars or re.match(r'[ \u2018\u2019\u201c\u201d\u0022\u0027\u00ab\u00bb"“”‘’«»()\[\]{}]', source_text[i])):
+            while i >= 0 and (source_text[i] in ignore_chars or re.match(r'[ \u2018\u2019\u201c\u201d\u0022\u0027\u00ab\u00bb""''«»()\[\]{}]', source_text[i])):
                 i -= 1
             if i < 0:
                 return False, '源语言句子为空或全为可忽略字符'
@@ -158,9 +162,13 @@ class DataProcessor:
         if source_len > self.MAX_SENTENCE_LENGTH or target_len > self.MAX_SENTENCE_LENGTH:
             return False, f'句子长度超过最大限制（源语言：{source_len}，目标语言：{target_len}）'
 
-        # 检查语言
+        # 检查源语言
         if not self.is_valid_language(source_text, self.SOURCE_LANG):
-            return False, '源语言句子语言检测失败'
+            return False, f'源语言句子语言检测失败（期望：{self.SOURCE_LANG}）'
+            
+        # 检查目标语言
+        if not self.is_valid_language(target_text, self.TARGET_LANG):
+            return False, f'目标语言句子语言检测失败（期望：{self.TARGET_LANG}）'
 
         return True, ''
 

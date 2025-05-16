@@ -85,26 +85,6 @@ class ConfirmDialog(ctk.CTkToplevel):
         self.destroy()
 
 class ConfigDialog(ctk.CTkToplevel):
-    # 语言选项映射
-    LANGUAGE_OPTIONS = {
-        'en': '英语',
-        'zh-cn': '简体中文',
-        'zh-tw': '繁体中文',
-        'ja': '日语',
-        'ko': '韩语',
-        'fr': '法语',
-        'de': '德语',
-        'es': '西班牙语',
-        'it': '意大利语',
-        'ru': '俄语',
-        'pt': '葡萄牙语',
-        'nl': '荷兰语',
-        'ar': '阿拉伯语',
-        'hi': '印地语',
-        'th': '泰语',
-        'vi': '越南语'
-    }
-
     def __init__(self, parent):
         super().__init__(parent)
         
@@ -121,6 +101,26 @@ class ConfigDialog(ctk.CTkToplevel):
         if error:
             logger.error(f"加载配置时发生错误：{error}")
         
+        # 语言代码到显示名称的映射
+        self.language_map = {
+            "en": "英语 (English)",
+            "zh-cn": "简体中文 (Simplified Chinese)",
+            "zh-tw": "繁体中文 (Traditional Chinese)",
+            "ja": "日语 (Japanese)",
+            "ko": "韩语 (Korean)",
+            "fr": "法语 (French)",
+            "de": "德语 (German)",
+            "es": "西班牙语 (Spanish)",
+            "it": "意大利语 (Italian)",
+            "ru": "俄语 (Russian)",
+            "pt": "葡萄牙语 (Portuguese)",
+            "nl": "荷兰语 (Dutch)",
+            "ar": "阿拉伯语 (Arabic)",
+            "hi": "印地语 (Hindi)",
+            "th": "泰语 (Thai)",
+            "vi": "越南语 (Vietnamese)"
+        }
+        
         # 创建变量存储配置值
         self.api_endpoint_var = tk.StringVar(value=self.config.get("api_endpoint", ""))
         self.api_key_var = tk.StringVar(value=self.config.get("api_key", ""))
@@ -135,8 +135,12 @@ class ConfigDialog(ctk.CTkToplevel):
         
         # 文件结构配置变量
         self.skip_rows_var = tk.StringVar(value=str(self.config.get("file_structure", {}).get("skip_rows", 6)))
-        self.source_lang_var = tk.StringVar(value=self.config.get("file_structure", {}).get("language", {}).get("source", "en"))
-        self.target_lang_var = tk.StringVar(value=self.config.get("file_structure", {}).get("language", {}).get("target", "zh-cn"))
+        
+        # 语言选择变量
+        self.source_lang_code = self.config.get("file_structure", {}).get("language", {}).get("source", "en")
+        self.target_lang_code = self.config.get("file_structure", {}).get("language", {}).get("target", "zh-cn")
+        self.source_lang_var = tk.StringVar(value=self.language_map.get(self.source_lang_code, "英语 (English)"))
+        self.target_lang_var = tk.StringVar(value=self.language_map.get(self.target_lang_code, "简体中文 (Simplified Chinese)"))
         
         # 列配置变量
         self.column_vars = {}
@@ -407,35 +411,22 @@ class ConfigDialog(ctk.CTkToplevel):
         lang_frame.pack(fill="x", padx=10, pady=5)
         ctk.CTkLabel(lang_frame, text="语言设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
         
-        # 添加提示信息
-        hint_frame = ctk.CTkFrame(lang_frame)
-        hint_frame.pack(fill="x", padx=5, pady=2)
-        ctk.CTkLabel(
-            hint_frame,
-            text="不同语言的处理功能尚未完成，敬请期待",
-            text_color="#FFA500",  # 使用橙色突出显示
-            font=("Arial", 12, "italic")
-        ).pack(side="left", padx=5)
-        
         # 源语言选择
         source_lang_frame = ctk.CTkFrame(lang_frame)
         source_lang_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(source_lang_frame, text="源语言：").pack(side="left", padx=5)
         
         # 创建源语言下拉框
+        source_lang_values = list(self.language_map.keys())
+        source_lang_display = [self.language_map[code] for code in source_lang_values]
         source_lang_combo = ctk.CTkComboBox(
             source_lang_frame,
-            values=list(self.LANGUAGE_OPTIONS.values()),
+            values=source_lang_display,
             variable=self.source_lang_var,
-            width=150,
-            command=self._on_source_lang_change
+            width=200,
+            command=lambda x: self._on_language_select(x, "source")
         )
         source_lang_combo.pack(side="left", padx=5)
-        
-        # 设置初始值
-        source_lang_code = self.source_lang_var.get()
-        if source_lang_code in self.LANGUAGE_OPTIONS:
-            source_lang_combo.set(self.LANGUAGE_OPTIONS[source_lang_code])
         
         # 目标语言选择
         target_lang_frame = ctk.CTkFrame(lang_frame)
@@ -443,19 +434,19 @@ class ConfigDialog(ctk.CTkToplevel):
         ctk.CTkLabel(target_lang_frame, text="目标语言：").pack(side="left", padx=5)
         
         # 创建目标语言下拉框
+        target_lang_values = list(self.language_map.keys())
+        target_lang_display = [self.language_map[code] for code in target_lang_values]
         target_lang_combo = ctk.CTkComboBox(
             target_lang_frame,
-            values=list(self.LANGUAGE_OPTIONS.values()),
+            values=target_lang_display,
             variable=self.target_lang_var,
-            width=150,
-            command=self._on_target_lang_change
+            width=200,
+            command=lambda x: self._on_language_select(x, "target")
         )
         target_lang_combo.pack(side="left", padx=5)
         
         # 设置初始值
-        target_lang_code = self.target_lang_var.get()
-        if target_lang_code in self.LANGUAGE_OPTIONS:
-            target_lang_combo.set(self.LANGUAGE_OPTIONS[target_lang_code])
+        self._set_initial_language_values()
         
         # 列设置区域
         columns_frame = ctk.CTkFrame(parent)
@@ -554,6 +545,32 @@ class ConfigDialog(ctk.CTkToplevel):
         }
         return display_names.get(col_name, col_name)
 
+    def _on_language_select(self, display_value: str, lang_type: str):
+        """处理语言选择事件"""
+        # 从显示值中提取语言代码
+        for code, display in self.language_map.items():
+            if display == display_value:
+                # 存储语言代码到变量中，但显示名称保持不变
+                if lang_type == "source":
+                    self.source_lang_var.set(display)  # 保持显示名称
+                    self.source_lang_code = code  # 存储代码
+                else:
+                    self.target_lang_var.set(display)  # 保持显示名称
+                    self.target_lang_code = code  # 存储代码
+                break
+
+    def _set_initial_language_values(self):
+        """设置语言下拉框的初始值"""
+        # 设置源语言初始值
+        source_code = self.source_lang_var.get()
+        if source_code in self.language_map:
+            self.source_lang_var.set(self.language_map[source_code])
+        
+        # 设置目标语言初始值
+        target_code = self.target_lang_var.get()
+        if target_code in self.language_map:
+            self.target_lang_var.set(self.language_map[target_code])
+
     def save_config(self):
         """保存配置"""
         try:
@@ -579,8 +596,8 @@ class ConfigDialog(ctk.CTkToplevel):
                 "file_structure": {
                     "skip_rows": int(self.skip_rows_var.get()) if self.skip_rows_var.get().strip() else 6,
                     "language": {
-                        "source": self.source_lang_var.get().strip() or "en",
-                        "target": self.target_lang_var.get().strip() or "zh-cn"
+                        "source": self.source_lang_code or "en",
+                        "target": self.target_lang_code or "zh-cn"
                     },
                     "columns": {
                         col_name: {
@@ -655,8 +672,8 @@ class ConfigDialog(ctk.CTkToplevel):
             
             # 重置文件结构配置
             self.skip_rows_var.set("6")
-            self.source_lang_var.set("en")
-            self.target_lang_var.set("zh-cn")
+            self.source_lang_var.set("英语 (English)")
+            self.target_lang_var.set("简体中文 (Simplified Chinese)")
             for col_name, col_config in self.column_vars.items():
                 col_config["enabled"].set(True)
                 col_config["index"].set(str(self.config_manager.default_config["file_structure"]["columns"][col_name]["index"]))
@@ -666,22 +683,6 @@ class ConfigDialog(ctk.CTkToplevel):
                 self.highlight_error_field(field, False)
             
             logger.info("已还原为默认配置")
-
-    def _on_source_lang_change(self, choice):
-        """源语言选择改变时的回调"""
-        # 从显示名称反查语言代码
-        for code, name in self.LANGUAGE_OPTIONS.items():
-            if name == choice:
-                self.source_lang_var.set(code)
-                break
-
-    def _on_target_lang_change(self, choice):
-        """目标语言选择改变时的回调"""
-        # 从显示名称反查语言代码
-        for code, name in self.LANGUAGE_OPTIONS.items():
-            if name == choice:
-                self.target_lang_var.set(code)
-                break
 
 class MainGUI:
     def __init__(self):

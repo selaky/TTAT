@@ -85,6 +85,26 @@ class ConfirmDialog(ctk.CTkToplevel):
         self.destroy()
 
 class ConfigDialog(ctk.CTkToplevel):
+    # 语言选项映射
+    LANGUAGE_OPTIONS = {
+        'en': '英语',
+        'zh-cn': '简体中文',
+        'zh-tw': '繁体中文',
+        'ja': '日语',
+        'ko': '韩语',
+        'fr': '法语',
+        'de': '德语',
+        'es': '西班牙语',
+        'it': '意大利语',
+        'ru': '俄语',
+        'pt': '葡萄牙语',
+        'nl': '荷兰语',
+        'ar': '阿拉伯语',
+        'hi': '印地语',
+        'th': '泰语',
+        'vi': '越南语'
+    }
+
     def __init__(self, parent):
         super().__init__(parent)
         
@@ -387,19 +407,55 @@ class ConfigDialog(ctk.CTkToplevel):
         lang_frame.pack(fill="x", padx=10, pady=5)
         ctk.CTkLabel(lang_frame, text="语言设置", font=("Arial", 14, "bold")).pack(anchor="w", padx=5, pady=5)
         
+        # 添加提示信息
+        hint_frame = ctk.CTkFrame(lang_frame)
+        hint_frame.pack(fill="x", padx=5, pady=2)
+        ctk.CTkLabel(
+            hint_frame,
+            text="不同语言的处理功能尚未完成，敬请期待",
+            text_color="#FFA500",  # 使用橙色突出显示
+            font=("Arial", 12, "italic")
+        ).pack(side="left", padx=5)
+        
+        # 源语言选择
         source_lang_frame = ctk.CTkFrame(lang_frame)
         source_lang_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(source_lang_frame, text="源语言：").pack(side="left", padx=5)
-        source_lang_entry = ctk.CTkEntry(source_lang_frame, textvariable=self.source_lang_var, width=100)
-        source_lang_entry.pack(side="left", padx=5)
-        ctk.CTkLabel(source_lang_frame, text="(例如: en)").pack(side="left", padx=5)
         
+        # 创建源语言下拉框
+        source_lang_combo = ctk.CTkComboBox(
+            source_lang_frame,
+            values=list(self.LANGUAGE_OPTIONS.values()),
+            variable=self.source_lang_var,
+            width=150,
+            command=self._on_source_lang_change
+        )
+        source_lang_combo.pack(side="left", padx=5)
+        
+        # 设置初始值
+        source_lang_code = self.source_lang_var.get()
+        if source_lang_code in self.LANGUAGE_OPTIONS:
+            source_lang_combo.set(self.LANGUAGE_OPTIONS[source_lang_code])
+        
+        # 目标语言选择
         target_lang_frame = ctk.CTkFrame(lang_frame)
         target_lang_frame.pack(fill="x", padx=5, pady=2)
         ctk.CTkLabel(target_lang_frame, text="目标语言：").pack(side="left", padx=5)
-        target_lang_entry = ctk.CTkEntry(target_lang_frame, textvariable=self.target_lang_var, width=100)
-        target_lang_entry.pack(side="left", padx=5)
-        ctk.CTkLabel(target_lang_frame, text="(例如: zh-cn)").pack(side="left", padx=5)
+        
+        # 创建目标语言下拉框
+        target_lang_combo = ctk.CTkComboBox(
+            target_lang_frame,
+            values=list(self.LANGUAGE_OPTIONS.values()),
+            variable=self.target_lang_var,
+            width=150,
+            command=self._on_target_lang_change
+        )
+        target_lang_combo.pack(side="left", padx=5)
+        
+        # 设置初始值
+        target_lang_code = self.target_lang_var.get()
+        if target_lang_code in self.LANGUAGE_OPTIONS:
+            target_lang_combo.set(self.LANGUAGE_OPTIONS[target_lang_code])
         
         # 列设置区域
         columns_frame = ctk.CTkFrame(parent)
@@ -610,6 +666,22 @@ class ConfigDialog(ctk.CTkToplevel):
                 self.highlight_error_field(field, False)
             
             logger.info("已还原为默认配置")
+
+    def _on_source_lang_change(self, choice):
+        """源语言选择改变时的回调"""
+        # 从显示名称反查语言代码
+        for code, name in self.LANGUAGE_OPTIONS.items():
+            if name == choice:
+                self.source_lang_var.set(code)
+                break
+
+    def _on_target_lang_change(self, choice):
+        """目标语言选择改变时的回调"""
+        # 从显示名称反查语言代码
+        for code, name in self.LANGUAGE_OPTIONS.items():
+            if name == choice:
+                self.target_lang_var.set(code)
+                break
 
 class MainGUI:
     def __init__(self):
